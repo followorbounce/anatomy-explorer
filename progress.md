@@ -14,8 +14,12 @@
 
 ## Known gaps / next
 - Published 2026-09-20: repo github.com/followorbounce/anatomy-explorer, live at https://followorbounce.github.io/anatomy-explorer/ (index, app.js, STL all 200).
-- Selection panel shows only name / FMA id / system / kind / triangle count — no descriptions or function text. No search box (1,635 structures).
+- Selection panel shows only name / FMA id / system / kind / triangle count — no descriptions or function text. (Search box, hide/isolate and L/R twin links have since been added.)
 - Only whole-system toggles (plus global opacity); no per-structure hide/isolate. Left/right paired structures are separate meshes with no mirror-toggle.
 - Muscles bundle is ~20 MB (largest); no progress bar, just a "Loading…" pill.
 - Flow pulse is one dot per vessel/nerve along the longest bbox axis (not anatomically traced); flow sprites start at mesh origin for a frame when first toggled on.
 - No mobile/touch layout check yet; not verified in a real (non-headless) browser beyond pixel readback.
+
+## 2026-09-21
+- Pushed the app-side work (structure search, per-structure hide/isolate, left/right twin link, load progress, floating selection card).
+- Ran the pending data rebuild (tools changes were newer than `data/mesh/*.bin`): 1,635 → 1,629 structures (6 duplicate meshes dropped), left/right name fix for flexor pollicis brevis, skin fitted outward where fascia/muscle poked through, and one misfiled biliary-tree structure moved from brain to digestive (`PRE` rule in `tools/structures.py`). Sources are re-downloaded to /tmp/bp per CLAUDE.md (not kept in repo). Verified in headless Firefox: all 16 systems on, full body renders, no load errors. Remaining: a few specks of structures still poke through skin at knee/neck.

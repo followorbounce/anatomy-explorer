@@ -13,7 +13,8 @@ Static, no-build interactive 3D human anatomy viewer. Real organ meshes from Bod
 
 ## Data
 - Geometry: BodyParts3D **release 4.0** (isa + partof, 99%-reduced OBJ), © DBCLS, CC BY-SA 2.1 Japan — attribution lives in the footer; keep it. Adult male only.
-- 1,635 named structures (2,234 element meshes, 6.68 M triangles source → 3.0 M after our decimation): skeleton 291, muscles 414, ligaments/fascia 30, heart 47, arteries 380, veins 217, brain 81, nerves 43, respiratory 24, digestive 46, urinary 8, genital 12, glands 2, eye/ear/face 30, skin 2, other 8.
+- 1,629 named structures (1,635 in the source; 6 exact-duplicate meshes dropped by `drop_duplicates`; 6.68 M triangles source → 3.0 M after our decimation): skeleton 279, muscles 395, ligaments/fascia 29, heart 43, arteries 387, veins 216, brain 94, nerves 37, respiratory 26, digestive 53, urinary 6, genital 12, glands 4, eye/ear/face 39, skin 3, other 6.
+- Build-time cleanups in `tools/build_data.py`: `drop_duplicates` (z-fighting copies), `fix_sides` (swaps left/right in names when the mesh is clearly on the other side — BP3D +x = subject's left), `fit_skin` (pushes skin out locally where thin structures poke through; a few specks still show at knee/neck).
 - **Not modelled** (say so, don't claim): peripheral nerve trunks (only cranial-nerve branches near the eye + spinal cord), lymphatic vessels, female anatomy.
 - Replaced the earlier v3.0-derived 160-structure STL set on 2026-09-20 (only 106 of its ids matched v4 concepts, so mixing would have duplicated/seamed).
 

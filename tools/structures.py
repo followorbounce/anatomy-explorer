@@ -82,7 +82,7 @@ ISA_SYSTEM = [
 # Named structures the IS-A tree doesn't classify (heads of muscles, arches, ...).
 EXTRA = [
     ("arteries", r"palmar arch|plantar arch|celiac trunk|thyrocervical|costocervical"),
-    ("muscles",  r"pronator|flexor|extensor|vastus|rectus femoris|lumbrical|interossei|adductor|abductor|coccyg|puborectalis|\blongus\b|\bbrevis\b|\bcolli\b|\bhead of\b|oblique part|\bpart of\b.*(right|left)|interspinales|intertransversarii|levatores|aryepiglotticus"),
+    ("muscles",  r"pronator|flexor|extensor|vastus|rectus femoris|lumbrical|interossei|adductor|abductor|coccyg|puborectalis|\blongus\b|\bbrevis\b|\bcolli\b|\bhead of\b|oblique part|interspinales|cricothyroid|intertransversarii|levatores|aryepiglotticus"),
     ("genital",  r"deferent|cavernous"),
     ("heart",    r"myocardial zone|pulmonary trunk"),
     ("digestive", r"submandibular gland|sublingual gland"),
@@ -90,6 +90,32 @@ EXTRA = [
     ("brain",    r"commissure|stria terminalis|lamina terminalis|geniculate|mammillary|interventricular foramen|lobular segment|subarachnoid"),
 ]
 _extra = [(k, re.compile(p, re.I)) for k, p in EXTRA]
+# Checked before the heart / IS-A layers: things whose names would otherwise be
+# mis-filed by a broader pattern (brain ventricles -> "ventricle" -> heart,
+# lacrimal gland -> "lacrimal" -> skeleton, adrenal -> "renal" -> urinary...).
+PRE = [
+    ("skin",        r"mons pubis"),
+    ("brain",       r"third ventricle|fourth ventricle|lateral ventricle|\b(occipital|frontal|temporal|parietal) lobe|gyrus|choroid plexus|internal capsule|habenula|tuber cinereum|insula"),
+    ("digestive",   r"biliary tree|of liver"),
+    ("senses",      r"lacrimal (gland|canaliculus|lake|sac)|nasolacrimal|optic part of retina|retina"),
+    ("endocrine",   r"adrenal|thymus|thyroid gland|parathyroid"),
+    ("respiratory", r"conus elasticus"),
+    ("arteries",    r"\bartery\b|\barteries\b|\barterial\b"),
+    ("veins",       r"\bvein\b|\bveins\b|hepatovenous|venous sinus"),
+]
+_pre = [(k, re.compile(p, re.I)) for k, p in PRE]
+_BRAIN_VENTRICLE = re.compile(r"\b(third|fourth|lateral) ventricle", re.I)
+_pre_vessels = _pre[-2:]
+_pre_specific = _pre[:-2]
+
+# Generic source names -> readable ones (checked against the exact concept name).
+RENAME = {
+    "body of organ": ("Body of sternum", "skeleton"),  # FMA45734, sits on the sternum body
+    "right hip": ("Right hip region", None),
+    "left hip": ("Left hip region", None),
+    "right knee": ("Right knee region", None),
+    "left knee": ("Left knee region", None),
+}
 _HEART = _compiled[1][1]
 _SKIN = _compiled[0][1]
 
@@ -98,10 +124,21 @@ def classify(name, ancestors=(), isa_ancestors=()):
     n = name.lower()
     # Heart parts (papillary muscles, coronary arteries...) belong with the heart
     # even though IS-A calls them muscle/artery.
+    if n in RENAME and RENAME[n][1]:
+        return RENAME[n][1]
     if _SKIN.search(n):
         return "skin"
+    if _BRAIN_VENTRICLE.search(n):
+        return "brain"
+    vessel = next((key for key, rx in _pre_vessels if rx.search(n)), None)
+    if vessel is None:  # "branch of ... artery to angular gyrus" is a vessel, not brain
+        for key, rx in _pre_specific:
+            if rx.search(n):
+                return key
     if _HEART.search(n):
         return "heart"
+    if vessel:
+        return vessel
     isa = set(isa_ancestors)
     for anc, key in ISA_SYSTEM:
         if anc in isa:
@@ -172,9 +209,12 @@ def load(tables_dir):
     for c, elems in groups.items():
         anc = [names[a].lower() for a in ancestors(c)]
         isa = [isa_names[a].lower() for a in isa_ancestors(c)]
+        nm = names[c]
+        if nm in RENAME:
+            nm = RENAME[nm][0]
         structures.append({
             "id": c,
-            "name": names[c],
+            "name": nm,
             "elements": sorted(elems),
             "system": classify(names[c], anc, isa),
         })
