@@ -29,4 +29,4 @@ Static, no-build interactive 3D human anatomy viewer. Real organ meshes from Bod
 - Serve statically (`python3 -m http.server`) and open in a browser. Headless Firefox `--screenshot` does **not** capture the WebGL canvas; to verify rendering, read pixels back (render, `drawImage` the canvas into a 2D canvas, sample) or use a real browser.
 
 ## Deploy
-Intended: GitHub Pages from `github.com/followorbounce/anatomy-explorer` (linked in the footer). Cloudflare Web Analytics beacon already in `index.html`.
+GitHub Pages (branch main, /) at https://followorbounce.github.io/anatomy-explorer/ — remote `github.com/followorbounce/anatomy-explorer` (public). Cloudflare Web Analytics beacon already in `index.html`; note it has not been registered for this path/site specifically (shares the followorbounce.github.io token).
