@@ -9,7 +9,7 @@
 - User report: "in the browser nothing works". Reproduced: over http everything works (all 160 meshes, all toggles); opened as `file://` the systems list is empty and nothing responds (module/STL loading blocked). Added a file:// banner + 10 s startup-failure banner in `index.html`, and `serve.sh`.
 
 ## Known gaps / next
-- Not yet a git repo / not pushed (footer already links github.com/followorbounce/anatomy-explorer).
+- Local git repo only (2 commits), not pushed (footer already links github.com/followorbounce/anatomy-explorer).
 - Selection panel shows only name / FMA id / system / kind — no descriptions or function text.
 - Only the visible-system toggle exists; no per-structure show/hide, opacity/x-ray, or search.
 - Flow pulse is one dot per vessel/nerve along the longest bbox axis (not anatomically traced); flow sprites start at mesh origin for a frame when first toggled on.
