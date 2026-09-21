@@ -97,6 +97,8 @@ PRE = [
     ("skin",        r"mons pubis"),
     ("brain",       r"third ventricle|fourth ventricle|lateral ventricle|\b(occipital|frontal|temporal|parietal) lobe|gyrus|choroid plexus|internal capsule|habenula|tuber cinereum|insula"),
     ("digestive",   r"biliary tree|of liver"),
+    ("muscles",     r"pectoralis major"),   # 'abdominal/clavicular/sternocostal part of ...' were falling into digestive
+    ("connective",  r"iliotibial tract"),   # fascia, was filed as skeleton (white strip down the outer thigh)
     ("senses",      r"lacrimal (gland|canaliculus|lake|sac)|nasolacrimal|optic part of retina|retina"),
     ("endocrine",   r"adrenal|thymus|thyroid gland|parathyroid"),
     ("respiratory", r"conus elasticus"),
