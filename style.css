@@ -138,3 +138,6 @@ footer a { color: var(--accent); }
 .startup-error[hidden] { display: none; }
 .startup-error code { font-family: var(--font-mono); background: rgba(127,127,127,0.18); padding: 1px 5px; border-radius: 4px; }
 .startup-error a { color: var(--accent); }
+
+.range-row { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; color: var(--ink); }
+.range-row input[type="range"] { flex: 1; accent-color: var(--accent); }

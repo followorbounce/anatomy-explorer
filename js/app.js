@@ -1,33 +1,42 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
 window.__anatomyReady = true; // lets index.html's startup check know the module loaded
 
 /* ---------- Color scheme ---------- */
 const SYSTEM_COLOR = {
-  digestive: 0xc98a4b,
-  respiratory: 0xe08a9a,
-  urinary: 0xd8c25a,
-  heart: 0xd1495b,
+  skeleton: 0xe3d9c0,
+  muscles: 0xb4514a,
+  connective: 0xd9d0a8,
+  heart: 0xb8324a,
+  arteries: 0xe0454f,
+  veins: 0x3f7cd6,
   brain: 0xb9a7d9,
-  vessels: 0x8c8c8c,
-  nervous_extra: 0xf2c94c,
+  nerves: 0xf2c94c,
+  respiratory: 0xe08a9a,
+  digestive: 0xc98a4b,
+  urinary: 0xd8c25a,
+  genital: 0xd98cb3,
+  endocrine: 0x8fc9a0,
+  senses: 0x7fb6d9,
+  skin: 0xe8b89a,
+  other: 0x9aa4b2,
 };
-const KIND_COLOR = {
-  artery: 0xd1495b,
-  vein: 0x3f7cd6,
-  nerve: 0xf2c94c,
-};
+// Small deterministic lightness jitter per structure so neighbouring bones /
+// muscles of one system stay visually distinguishable.
 function colorFor(organ) {
-  return KIND_COLOR[organ.kind] ?? SYSTEM_COLOR[organ.system] ?? 0x9aa4b2;
+  const c = new THREE.Color(SYSTEM_COLOR[organ.system] ?? 0x9aa4b2);
+  let h = 0;
+  for (let i = 0; i < organ.id.length; i++) h = (h * 31 + organ.id.charCodeAt(i)) >>> 0;
+  const hsl = {};
+  c.getHSL(hsl);
+  c.setHSL(hsl.h, hsl.s, Math.min(0.9, Math.max(0.1, hsl.l + ((h % 1000) / 1000 - 0.5) * 0.12)));
+  return c;
 }
 
-const SYSTEMS = [...new Set(Organs.map((o) => o.system))].map((key) => {
-  const sample = Organs.find((o) => o.system === key);
-  return { key, label: sample.systemLabel, count: Organs.filter((o) => o.system === key).length };
-});
-const DEFAULT_ON = new Set(["heart"]);
+const SYSTEMS = SystemDefs; // { key, label, kind, bytes } in display order
+const SYSTEM_COUNT = Object.fromEntries(SYSTEMS.map((s) => [s.key, Organs.filter((o) => o.system === s.key).length]));
+const DEFAULT_ON = new Set(["skeleton"]);
 
 /* ---------- Three.js scene ---------- */
 const host = document.getElementById("canvasHost");
@@ -61,38 +70,49 @@ root.rotation.x = -Math.PI / 2;
 scene.add(root);
 
 /* ---------- Loading + mesh bookkeeping ---------- */
-const loader = new STLLoader();
 const loadedMeshes = new Map(); // organ.id -> THREE.Mesh
-const flowRigs = []; // { mesh, axisStart, axisEnd, sprite, phase }
+const flowRigs = []; // { mesh, start, end, sprite, phase, kind }
 let selectedId = null;
+let meshOpacity = 1; // driven by the opacity slider
 
-function loadOrgan(organ) {
-  if (loadedMeshes.has(organ.id)) return Promise.resolve(loadedMeshes.get(organ.id));
-  return new Promise((resolve, reject) => {
-    loader.load(
-      `data/stl/${organ.id}.stl`,
-      (geometry) => {
-        geometry.computeVertexNormals();
-        geometry.computeBoundingBox();
-        const material = new THREE.MeshStandardMaterial({
-          color: colorFor(organ),
-          roughness: 0.55,
-          metalness: 0.05,
-          emissive: 0x000000,
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.userData.organ = organ;
-        root.add(mesh);
-        loadedMeshes.set(organ.id, mesh);
-        if (organ.kind === "artery" || organ.kind === "vein" || organ.kind === "nerve") {
-          setupFlowRig(mesh, organ);
-        }
-        resolve(mesh);
-      },
-      undefined,
-      reject
-    );
+// One binary bundle per system (data/mesh/<system>.bin): each structure is
+// float32 positions[v*3] followed by uint32 indices[t*3] at byte offset `o`
+// (see tools/build_data.py). Bundles are fetched once per toggle-on; the
+// browser HTTP cache makes re-enabling a system cheap.
+async function fetchBundle(systemKey) {
+  const res = await fetch(`data/mesh/${systemKey}.bin`);
+  if (!res.ok) throw new Error(`${systemKey}.bin: HTTP ${res.status}`);
+  return res.arrayBuffer();
+}
+
+function applyOpacity(material) {
+  material.opacity = meshOpacity;
+  material.transparent = meshOpacity < 1;
+  material.depthWrite = meshOpacity >= 0.99;
+}
+
+function addOrgan(organ, buffer) {
+  if (loadedMeshes.has(organ.id)) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(buffer, organ.o, organ.v * 3), 3));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(buffer, organ.o + organ.v * 12, organ.t * 3), 1));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  const material = new THREE.MeshStandardMaterial({
+    color: colorFor(organ),
+    roughness: 0.55,
+    metalness: 0.05,
+    emissive: 0x000000,
+    side: THREE.DoubleSide, // the source meshes are not guaranteed watertight / consistently wound
   });
+  applyOpacity(material);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData.organ = organ;
+  root.add(mesh);
+  loadedMeshes.set(organ.id, mesh);
+  if (organ.kind === "artery" || organ.kind === "vein" || organ.kind === "nerve") {
+    setupFlowRig(mesh, organ);
+  }
 }
 
 function unloadOrgan(organ) {
@@ -103,13 +123,18 @@ function unloadOrgan(organ) {
   mesh.material.dispose();
   loadedMeshes.delete(organ.id);
   const rigIdx = flowRigs.findIndex((r) => r.mesh === mesh);
-  if (rigIdx >= 0) {
-    scene.remove(flowRigs[rigIdx].sprite);
-    root.remove(flowRigs[rigIdx].sprite);
-    flowRigs.splice(rigIdx, 1);
-  }
+  if (rigIdx >= 0) flowRigs.splice(rigIdx, 1); // sprite is a child of mesh; geometry/material are shared
   if (selectedId === organ.id) clearSelection();
 }
+
+// Flow-pulse sprites share one sphere geometry and one material per kind —
+// with the full body there are ~640 vessels/nerves.
+const SPRITE_GEO = new THREE.SphereGeometry(1, 10, 10);
+const SPRITE_MAT = {
+  artery: new THREE.MeshBasicMaterial({ color: 0xff5d6c }),
+  vein: new THREE.MeshBasicMaterial({ color: 0x6fb4ff }),
+  nerve: new THREE.MeshBasicMaterial({ color: 0xf2c94c }),
+};
 
 function setupFlowRig(mesh, organ) {
   const box = mesh.geometry.boundingBox;
@@ -122,31 +147,33 @@ function setupFlowRig(mesh, organ) {
   if (axis === "y") { start.x = end.x = box.min.x + size.x / 2; start.z = end.z = box.min.z + size.z / 2; }
   if (axis === "z") { start.x = end.x = box.min.x + size.x / 2; start.y = end.y = box.min.y + size.y / 2; }
 
-  const isNerve = organ.kind === "nerve";
-  const spriteGeo = new THREE.SphereGeometry(Math.max(1.2, Math.min(size.length() * 0.02, 4)), 12, 12);
-  const spriteMat = new THREE.MeshBasicMaterial({ color: isNerve ? 0xf2c94c : organ.kind === "vein" ? 0x6fb4ff : 0xff5d6c });
-  const sprite = new THREE.Mesh(spriteGeo, spriteMat);
+  const sprite = new THREE.Mesh(SPRITE_GEO, SPRITE_MAT[organ.kind]);
+  sprite.scale.setScalar(Math.max(1.2, Math.min(size.length() * 0.02, 4)));
+  sprite.position.copy(start);
   sprite.visible = false;
   mesh.add(sprite);
   flowRigs.push({ mesh, start, end, sprite, phase: Math.random(), kind: organ.kind });
+  sprite.visible = organ.kind === "nerve" ? nerveToggle.checked : bloodToggle.checked;
 }
 
 /* ---------- Sidebar: systems ---------- */
 const systemListEl = document.getElementById("systemList");
+const fmtMB = (b) => (b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB");
 systemListEl.innerHTML = SYSTEMS.map(
   (s) => `
-  <label class="system-row">
+  <label class="system-row" title="${SYSTEM_COUNT[s.key]} structures · ${fmtMB(s.bytes)} to download">
     <input type="checkbox" data-system="${s.key}" ${DEFAULT_ON.has(s.key) ? "checked" : ""} />
     <span class="sys-swatch" style="background:#${SYSTEM_COLOR[s.key].toString(16).padStart(6, "0")}"></span>
     ${s.label}
-    <span class="sys-count">${s.count}</span>
+    <span class="sys-count">${SYSTEM_COUNT[s.key]}</span>
   </label>`
 ).join("");
 
 const loadingEl = document.getElementById("loadingIndicator");
 let pendingLoads = 0;
-function trackLoading(promise) {
+function trackLoading(label, promise) {
   pendingLoads++;
+  loadingEl.textContent = `Loading ${label}…`;
   loadingEl.hidden = false;
   return promise.finally(() => {
     pendingLoads--;
@@ -154,11 +181,25 @@ function trackLoading(promise) {
   });
 }
 
+const systemToken = new Map(); // guards against a fast on→off→on race
 async function setSystemVisible(systemKey, visible) {
   const organs = Organs.filter((o) => o.system === systemKey);
+  const token = Symbol();
+  systemToken.set(systemKey, token);
   if (visible) {
-    await trackLoading(Promise.all(organs.map((o) => loadOrgan(o).catch((e) => console.error(o.id, e)))));
-    fitCameraToScene();
+    const def = SYSTEMS.find((s) => s.key === systemKey);
+    try {
+      const buffer = await trackLoading(def.label, fetchBundle(systemKey));
+      if (systemToken.get(systemKey) !== token) return; // toggled again while loading
+      organs.forEach((o) => addOrgan(o, buffer));
+      fitCameraToScene();
+    } catch (e) {
+      console.error(systemKey, e);
+      loadingEl.textContent = `Could not load ${def.label}`;
+      loadingEl.hidden = false;
+      const cb = systemListEl.querySelector(`[data-system="${systemKey}"]`);
+      if (cb) cb.checked = false;
+    }
   } else {
     organs.forEach(unloadOrgan);
   }
@@ -166,6 +207,12 @@ async function setSystemVisible(systemKey, visible) {
 
 systemListEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
   cb.addEventListener("change", () => setSystemVisible(cb.dataset.system, cb.checked));
+});
+
+const opacityEl = document.getElementById("opacityRange");
+opacityEl.addEventListener("input", () => {
+  meshOpacity = opacityEl.value / 100;
+  loadedMeshes.forEach((m) => applyOpacity(m.material));
 });
 
 /* ---------- Selection / highlighting ---------- */
@@ -188,40 +235,55 @@ function selectOrgan(mesh) {
     <h2>Selection</h2>
     <h3>${o.name}</h3>
     <div class="info-meta">${o.id} · ${o.systemLabel}</div>
-    <span class="info-kind">${o.kind}</span>`;
+    <span class="info-kind">${o.kind}</span>
+    <div class="info-meta" style="margin-top:6px">${o.t.toLocaleString()} triangles (decimated)</div>`;
 }
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-function pointerToNDC(event) {
+function pickAt(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-}
-renderer.domElement.addEventListener("click", (event) => {
-  pointerToNDC(event);
   raycaster.setFromCamera(pointer, camera);
-  const meshes = [...loadedMeshes.values()];
-  const hits = raycaster.intersectObjects(meshes, false);
-  if (hits.length) selectOrgan(hits[0].object);
+  const hits = raycaster.intersectObjects([...loadedMeshes.values()], false);
+  // With transparency on, look through the skin so inner structures are pickable.
+  const hit = meshOpacity < 1 ? hits.find((h) => h.object.userData.organ.system !== "skin") ?? hits[0] : hits[0];
+  return hit ? hit.object : null;
+}
+
+// A drag that rotates the view must not count as a click.
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("click", (event) => {
+  if (downAt && Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) > 4) return;
+  const hit = pickAt(event);
+  if (hit) selectOrgan(hit);
   else clearSelection();
 });
 
+// Hover picking is throttled to one raycast per animation frame; with the full
+// body loaded (1600+ meshes) firing it on every mousemove would be wasteful.
 let hoveredMesh = null;
+let pendingMove = null;
 renderer.domElement.addEventListener("mousemove", (event) => {
-  pointerToNDC(event);
-  raycaster.setFromCamera(pointer, camera);
-  const meshes = [...loadedMeshes.values()];
-  const hits = raycaster.intersectObjects(meshes, false);
-  const next = hits.length ? hits[0].object : null;
-  if (hoveredMesh && hoveredMesh !== next && hoveredMesh.userData.organ.id !== selectedId) {
-    hoveredMesh.material.emissive.setHex(0x000000);
-  }
-  if (next && next.userData.organ.id !== selectedId) {
-    next.material.emissive.setHex(0x0d2a29);
-  }
-  hoveredMesh = next;
-  renderer.domElement.style.cursor = next ? "pointer" : "grab";
+  const had = pendingMove !== null;
+  pendingMove = event;
+  if (had || event.buttons) return; // already scheduled, or mid-drag
+  requestAnimationFrame(() => {
+    const ev = pendingMove;
+    pendingMove = null;
+    if (!ev) return;
+    const next = pickAt(ev);
+    if (hoveredMesh && hoveredMesh !== next && hoveredMesh.userData.organ.id !== selectedId && loadedMeshes.has(hoveredMesh.userData.organ.id)) {
+      hoveredMesh.material.emissive.setHex(0x000000);
+    }
+    if (next && next.userData.organ.id !== selectedId) {
+      next.material.emissive.setHex(0x0d2a29);
+    }
+    hoveredMesh = next;
+    renderer.domElement.style.cursor = next ? "pointer" : "grab";
+  });
 });
 
 /* ---------- Flow toggles ---------- */

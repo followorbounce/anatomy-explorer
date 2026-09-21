@@ -3,20 +3,38 @@
 Static, no-build interactive 3D human anatomy viewer. Real organ meshes from BodyParts3D, grouped by body system, with optional animated blood-flow / nerve-signal pulses.
 
 ## Structure
-- `index.html` — single page: sidebar (systems checklist, live-signal toggles, selection panel) + Three.js canvas. Three.js r0.186 loaded via import map from jsDelivr (no bundler).
-- `js/app.js` — the whole app (ES module): scene, STL loading per system, selection/hover raycasting, flow pulses, camera fit, theme toggle.
-- `js/data/organs.js` — global `Organs` array (plain script, loaded before app.js). Auto-generated; entries `{ id, name, system, systemLabel, kind }`. `id` is the FMA identifier and doubles as the mesh filename `data/stl/<id>.stl`.
-- `data/stl/` — 160 decimated STL meshes (~31 MB total), ~6000 triangles each.
-- `style.css` — dark/light themes via CSS variables.
+- `index.html` — single page: sidebar (systems checklist, live-signal toggles, opacity slider, selection panel) + Three.js canvas. Three.js r0.186 loaded via import map from jsDelivr (no bundler).
+- `js/app.js` — the whole app (ES module): scene, per-system bundle loading, selection/hover raycasting, flow pulses, camera fit, theme toggle.
+- `js/data/organs.js` — **generated** (`tools/build_data.py`, never hand-edit). Globals `SystemDefs` (`{key,label,kind,bytes}` in sidebar order) and `Organs` (`{id,name,system,systemLabel,kind,o,v,t}`; `id` = FMA concept id).
+- `data/mesh/<system>.bin` — 16 generated binary bundles (~54 MB total). Per structure at byte offset `o`: float32 positions[v*3] then uint32 indices[t*3]. Loaded whole when a system is toggled on.
+- `tools/structures.py` — groups element meshes into named structures and classifies them into systems (IS-A ancestry first, then name regexes; see "Classification").
+- `tools/build_data.py` — decimates (fast_simplification) + packs bundles + writes organs.js. Source archives are NOT in the repo.
+- `style.css` — dark/light themes via CSS variables. `serve.sh` — local static server.
 
 ## Data
-- Geometry: BodyParts3D v3.0, © DBCLS, CC BY-SA 2.1 Japan — attribution lives in the footer; keep it.
-- 160 of 934 available structures, curated: digestive 8, respiratory 6, urinary 5, heart 23, brain 73, vessels 42 (32 arteries + the rest veins), nervous_extra 3 (optic nerves / spinal canal). Peripheral nerves are **not** modeled in this release — don't claim them.
-- `Organs` ids and `data/stl/*.stl` are 1:1 (verified 2026-09-20). Keep them in sync when adding/removing structures.
+- Geometry: BodyParts3D **release 4.0** (isa + partof, 99%-reduced OBJ), © DBCLS, CC BY-SA 2.1 Japan — attribution lives in the footer; keep it. Adult male only.
+- 1,635 named structures (2,234 element meshes, 6.68 M triangles source → 3.0 M after our decimation): skeleton 291, muscles 414, ligaments/fascia 30, heart 47, arteries 380, veins 217, brain 81, nerves 43, respiratory 24, digestive 46, urinary 8, genital 12, glands 2, eye/ear/face 30, skin 2, other 8.
+- **Not modelled** (say so, don't claim): peripheral nerve trunks (only cranial-nerve branches near the eye + spinal cord), lymphatic vessels, female anatomy.
+- Replaced the earlier v3.0-derived 160-structure STL set on 2026-09-20 (only 106 of its ids matched v4 concepts, so mixing would have duplicated/seamed).
+
+### Rebuilding the data
+```
+B=https://dbarchive.biosciencedbc.jp/data/bodyparts3d/LATEST
+mkdir -p /tmp/bp && cd /tmp/bp
+curl -O $B/isa_BP3D_4.0_obj_99.zip -O $B/partof_BP3D_4.0_obj_99.zip   # ~200 MB, slow
+curl -O $B/partof_element_parts.txt -O $B/isa_element_parts.txt -O $B/partof_inclusion_relation_list.txt -O $B/isa_inclusion_relation_list.txt
+unzip -q isa_BP3D_4.0_obj_99.zip -d isa; unzip -q partof_BP3D_4.0_obj_99.zip -d partof
+python3 <repo>/tools/build_data.py /tmp/bp /tmp/bp/isa/isa_BP3D_4.0_obj_99 /tmp/bp/partof/partof_BP3D_4.0_obj_99 [--budget-tris=3000000]
+```
+Needs numpy + fast_simplification (~40 s). The isa archive is a superset of partof's elements.
+
+### Classification
+Each element mesh (FJxxxx) is named after the smallest concept containing it; elements sharing that concept merge into one structure. System = IS-A ancestor (muscle organ / bone organ / artery / vein / nerve / ligament…) → else name regex (`tools/structures.py` RULES/EXTRA) → else PART-OF ancestor → `other`. Heart parts are forced into "heart" before the IS-A check. To fix a misfiled structure, add a pattern to `EXTRA`.
 
 ## Conventions / gotchas
-- BodyParts3D is **Z-up, millimetres**; `root` group is rotated −π/2 about X to get Y-up. Heart sits around z≈1190–1290.
-- `kind` drives colour and flow: `artery`/`vein`/`nerve` get a flow-pulse sprite (child of the mesh, at local origin until animated); other kinds don't.
+- BodyParts3D is **Z-up, millimetres**; `root` group is rotated −π/2 about X to get Y-up. Heart sits around z≈1190–1290. Default view: skeleton only.
+- `system` drives colour (+ small per-id lightness jitter); `kind` (`artery`/`vein`/`nerve`) gets a flow-pulse sprite (child of the mesh, shared geometry/material; ~640 of them). Materials are DoubleSide (source meshes aren't guaranteed consistently wound).
+- Opacity slider makes all meshes transparent; picking then skips the skin shell so inner structures stay clickable. Hover picking is throttled to 1 raycast/frame.
 - **Never fit the camera with `Box3.expandByObject`** — it includes the hidden flow sprites at each mesh's local origin, which stretches the box to world origin and aims the camera at empty space (heart rendered tiny). `fitCameraToScene` unions `geometry.boundingBox` transformed by `matrixWorld` instead.
 - Flow pulses are illustrative (a dot lerping along the mesh's longest bbox axis), not a fluid sim or a traced vessel path — the UI says so; keep that honest.
 - Never use Russian in code/UI/docs unless the task explicitly calls for it.
@@ -26,7 +44,7 @@ Static, no-build interactive 3D human anatomy viewer. Real organ meshes from Bod
 - `js/app.js` sets `window.__anatomyReady`; an inline classic script in `index.html` shows a "viewer didn't start" banner if that isn't set after 10 s (e.g. CDN blocked).
 
 ## Testing
-- Serve statically (`python3 -m http.server`) and open in a browser. Headless Firefox `--screenshot` does **not** capture the WebGL canvas; to verify rendering, read pixels back (render, `drawImage` the canvas into a 2D canvas, sample) or use a real browser.
+- Serve statically (`./serve.sh`) and open in a browser. Headless Firefox `--screenshot` does **not** capture the WebGL canvas; to verify rendering, read pixels back (render, `drawImage` the canvas into a 2D canvas, sample) or use a real browser.
 
 ## Deploy
 GitHub Pages (branch main, /) at https://followorbounce.github.io/anatomy-explorer/ — remote `github.com/followorbounce/anatomy-explorer` (public). Cloudflare Web Analytics beacon already in `index.html`; note it has not been registered for this path/site specifically (shares the followorbounce.github.io token).

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Anatomy Explorer</title>
-<meta name="description" content="Interactive 3D human anatomy — real organ meshes, grouped by body system, with animated blood-flow and nerve-signal visualization." />
+<meta name="description" content="Interactive 3D human anatomy — 1,635 real structures (skeleton, muscles, organs, vessels, brain) grouped by body system, with animated blood-flow and nerve-signal visualization." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -59,6 +59,15 @@
       <p class="sidebar-note">Animated pulses along each vessel/nerve's own long axis — illustrative motion, not a fluid simulation or traced vascular path.</p>
     </div>
 
+    <div class="sidebar-section">
+      <h2>Display</h2>
+      <label class="range-row" for="opacityRange">
+        <span>Opacity</span>
+        <input type="range" id="opacityRange" min="10" max="100" value="100" step="5" />
+      </label>
+      <p class="sidebar-note">Lower it to see organs through bone, muscle or skin.</p>
+    </div>
+
     <div class="sidebar-section" id="infoPanel">
       <h2>Selection</h2>
       <p class="info-empty">Click any structure to select it.</p>
@@ -73,7 +82,7 @@
 </div>
 
 <footer>
-  Geometry: <a href="http://lifesciencedb.jp/bp3d/" target="_blank" rel="noopener">BodyParts3D</a>, © The Database Center for Life Science, <a href="https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en" target="_blank" rel="noopener">CC BY-SA 2.1 Japan</a>, extracted from whole-body MRI. 160 structures shown here (of 934 available) — a curated subset covering digestive, respiratory, urinary, circulatory (heart + major vessels), and the nervous-system structures this release models (brain + optic nerves + spinal canal; peripheral nerves are not modeled in this data release). Meshes decimated for web performance; see the project's own documentation for exactly what was cut and why.<br />
+  Geometry: <a href="http://lifesciencedb.jp/bp3d/" target="_blank" rel="noopener">BodyParts3D</a>, © The Database Center for Life Science, <a href="https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en" target="_blank" rel="noopener">CC BY-SA 2.1 Japan</a>, extracted from whole-body MRI of an adult male (release 4.0, 99% polygon-reduced set). 1,635 named structures: skeleton, muscles, ligaments, heart, arteries, veins, brain, organs of every system this release models, eye/ear and skin. Not modelled: peripheral nerve trunks (only cranial-nerve branches near the eye and the spinal cord), lymphatic vessels, and female anatomy. Meshes are further decimated for the web and loaded one system at a time.<br />
   <a href="https://github.com/followorbounce/anatomy-explorer" target="_blank" rel="noopener">Source on GitHub</a>
 </footer>
 
