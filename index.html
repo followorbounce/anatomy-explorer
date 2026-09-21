@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Anatomy Explorer</title>
+<meta name="description" content="Interactive 3D human anatomy — real organ meshes, grouped by body system, with animated blood-flow and nerve-signal visualization." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "bba4e16a7d9b4d9985eda0cda2624e60"}'></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <svg class="glyph" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4" fill="none"/>
+        <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+        <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.4"/>
+      </svg>
+      Anatomy Explorer
+    </div>
+    <div class="topbar-actions">
+      <button type="button" class="pill-btn" id="resetViewBtn">Reset view</button>
+      <button type="button" class="theme-toggle" id="themeToggle">☾ / ☀</button>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h2>Systems</h2>
+      <div class="system-list" id="systemList"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Live signals</h2>
+      <label class="toggle-row">
+        <input type="checkbox" id="bloodFlowToggle" />
+        <span class="toggle-swatch blood"></span>
+        Blood flow (circulatory)
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="nerveSignalToggle" />
+        <span class="toggle-swatch nerve"></span>
+        Nerve signals
+      </label>
+      <p class="sidebar-note">Animated pulses along each vessel/nerve's own long axis — illustrative motion, not a fluid simulation or traced vascular path.</p>
+    </div>
+
+    <div class="sidebar-section" id="infoPanel">
+      <h2>Selection</h2>
+      <p class="info-empty">Click any structure to select it.</p>
+    </div>
+  </aside>
+
+  <main class="viewport">
+    <div id="canvasHost"></div>
+    <div class="viewport-hint">Drag to rotate · scroll to zoom · click a structure to select</div>
+    <div class="loading-indicator" id="loadingIndicator" hidden>Loading…</div>
+  </main>
+</div>
+
+<footer>
+  Geometry: <a href="http://lifesciencedb.jp/bp3d/" target="_blank" rel="noopener">BodyParts3D</a>, © The Database Center for Life Science, <a href="https://creativecommons.org/licenses/by-sa/2.1/jp/deed.en" target="_blank" rel="noopener">CC BY-SA 2.1 Japan</a>, extracted from whole-body MRI. 160 structures shown here (of 934 available) — a curated subset covering digestive, respiratory, urinary, circulatory (heart + major vessels), and the nervous-system structures this release models (brain + optic nerves + spinal canal; peripheral nerves are not modeled in this data release). Meshes decimated for web performance; see the project's own documentation for exactly what was cut and why.<br />
+  <a href="https://github.com/followorbounce/anatomy-explorer" target="_blank" rel="noopener">Source on GitHub</a>
+</footer>
+
+<script src="js/data/organs.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
