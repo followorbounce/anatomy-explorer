@@ -3,8 +3,8 @@
 Static, no-build interactive 3D human anatomy viewer. Real organ meshes from BodyParts3D, grouped by body system, with optional animated blood-flow / nerve-signal pulses.
 
 ## Structure
-- `index.html` — single page: sidebar (systems checklist, live-signal toggles, opacity slider, selection panel) + Three.js canvas. Three.js r0.186 loaded via import map from jsDelivr (no bundler).
-- `js/app.js` — the whole app (ES module): scene, per-system bundle loading, selection/hover raycasting, flow pulses, camera fit, theme toggle.
+- `index.html` — single page: sidebar (structure search, systems checklist, live-signal toggles, opacity slider, hidden/isolated status) + Three.js canvas with a floating selection card (Focus / Hide / Isolate, left-right twin link). Three.js r0.186 loaded via import map from jsDelivr (no bundler).
+- `js/app.js` — the whole app (ES module): scene, per-system bundle loading (streamed, with % progress), selection/hover raycasting, per-structure hide/isolate, name search, flow pulses, camera fit/focus, theme toggle.
 - `js/data/organs.js` — **generated** (`tools/build_data.py`, never hand-edit). Globals `SystemDefs` (`{key,label,kind,bytes}` in sidebar order) and `Organs` (`{id,name,system,systemLabel,kind,o,v,t}`; `id` = FMA concept id).
 - `data/mesh/<system>.bin` — 16 generated binary bundles (~54 MB total). Per structure at byte offset `o`: float32 positions[v*3] then uint32 indices[t*3]. Loaded whole when a system is toggled on.
 - `tools/structures.py` — groups element meshes into named structures and classifies them into systems (IS-A ancestry first, then name regexes; see "Classification").
@@ -34,6 +34,8 @@ Each element mesh (FJxxxx) is named after the smallest concept containing it; el
 ## Conventions / gotchas
 - BodyParts3D is **Z-up, millimetres**; `root` group is rotated −π/2 about X to get Y-up. Heart sits around z≈1190–1290. Default view: skeleton only.
 - `system` drives colour (+ small per-id lightness jitter); `kind` (`artery`/`vein`/`nerve`) gets a flow-pulse sprite (child of the mesh, shared geometry/material; ~640 of them). Materials are DoubleSide (source meshes aren't guaranteed consistently wound).
+- **`Raycaster` ignores `mesh.visible`** — `pickAt` filters to visible meshes itself; keep that when touching picking. Hide/isolate state lives in `hiddenIds` / `isolateIds` (applied by `applyVisibility()`, re-applied to meshes as their system loads).
+- Search (`#searchInput`) matches every typed word against structure names; picking a result calls `ensureSystem()` (turns the system on and awaits its bundle), un-hides, selects and focuses it. Left/right twins are found by swapping the word in the name within the same system (`mirrorOf`).
 - Opacity slider makes all meshes transparent; picking then skips the skin shell so inner structures stay clickable. Hover picking is throttled to 1 raycast/frame.
 - **Never fit the camera with `Box3.expandByObject`** — it includes the hidden flow sprites at each mesh's local origin, which stretches the box to world origin and aims the camera at empty space (heart rendered tiny). `fitCameraToScene` unions `geometry.boundingBox` transformed by `matrixWorld` instead.
 - Flow pulses are illustrative (a dot lerping along the mesh's longest bbox axis), not a fluid sim or a traced vessel path — the UI says so; keep that honest.

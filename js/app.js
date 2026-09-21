@@ -75,14 +75,52 @@ const flowRigs = []; // { mesh, start, end, sprite, phase, kind }
 let selectedId = null;
 let meshOpacity = 1; // driven by the opacity slider
 
+// Per-structure visibility: individually hidden ids, plus an optional isolate
+// set (when set, ONLY those structures are shown).
+const hiddenIds = new Set();
+let isolateIds = null;
+const isShown = (id) => !hiddenIds.has(id) && (!isolateIds || isolateIds.has(id));
+
 // One binary bundle per system (data/mesh/<system>.bin): each structure is
 // float32 positions[v*3] followed by uint32 indices[t*3] at byte offset `o`
 // (see tools/build_data.py). Bundles are fetched once per toggle-on; the
 // browser HTTP cache makes re-enabling a system cheap.
-async function fetchBundle(systemKey) {
-  const res = await fetch(`data/mesh/${systemKey}.bin`);
-  if (!res.ok) throw new Error(`${systemKey}.bin: HTTP ${res.status}`);
-  return res.arrayBuffer();
+// Streams the response so the loading pill can show real progress. The total
+// comes from SystemDefs (uncompressed size), not Content-Length, which is the
+// compressed size when the host gzips.
+const loadingEl = document.getElementById("loadingIndicator");
+const loadProgress = new Map(); // system label -> 0..1
+function renderLoading() {
+  if (!loadProgress.size) { loadingEl.hidden = true; return; }
+  loadingEl.textContent = "Loading " + [...loadProgress].map(([l, p]) => `${l} ${Math.round(p * 100)}%`).join(" · ") + "…";
+  loadingEl.hidden = false;
+}
+async function fetchBundle(def) {
+  loadProgress.set(def.label, 0);
+  renderLoading();
+  try {
+    const res = await fetch(`data/mesh/${def.key}.bin`);
+    if (!res.ok) throw new Error(`${def.key}.bin: HTTP ${res.status}`);
+    if (!res.body) return await res.arrayBuffer();
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      loadProgress.set(def.label, Math.min(0.99, got / def.bytes));
+      renderLoading();
+    }
+    const out = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out.buffer;
+  } finally {
+    loadProgress.delete(def.label);
+    renderLoading();
+  }
 }
 
 function applyOpacity(material) {
@@ -108,6 +146,7 @@ function addOrgan(organ, buffer) {
   applyOpacity(material);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.organ = organ;
+  mesh.visible = isShown(organ.id);
   root.add(mesh);
   loadedMeshes.set(organ.id, mesh);
   if (organ.kind === "artery" || organ.kind === "vein" || organ.kind === "nerve") {
@@ -122,6 +161,8 @@ function unloadOrgan(organ) {
   mesh.geometry.dispose();
   mesh.material.dispose();
   loadedMeshes.delete(organ.id);
+  hiddenIds.delete(organ.id);
+  if (isolateIds) { isolateIds.delete(organ.id); if (!isolateIds.size) isolateIds = null; }
   const rigIdx = flowRigs.findIndex((r) => r.mesh === mesh);
   if (rigIdx >= 0) flowRigs.splice(rigIdx, 1); // sprite is a child of mesh; geometry/material are shared
   if (selectedId === organ.id) clearSelection();
@@ -169,32 +210,35 @@ systemListEl.innerHTML = SYSTEMS.map(
   </label>`
 ).join("");
 
-const loadingEl = document.getElementById("loadingIndicator");
-let pendingLoads = 0;
-function trackLoading(label, promise) {
-  pendingLoads++;
-  loadingEl.textContent = `Loading ${label}…`;
-  loadingEl.hidden = false;
-  return promise.finally(() => {
-    pendingLoads--;
-    if (pendingLoads <= 0) loadingEl.hidden = true;
-  });
-}
-
 const systemToken = new Map(); // guards against a fast on→off→on race
-async function setSystemVisible(systemKey, visible) {
+const systemLoads = new Map(); // key -> in-flight/finished load promise, while the system is on
+function setSystemVisible(systemKey, visible) {
+  const p = doSetSystemVisible(systemKey, visible);
+  if (visible) systemLoads.set(systemKey, p); else systemLoads.delete(systemKey);
+  return p;
+}
+// Turns a system on if needed and resolves once its meshes exist (used by search).
+function ensureSystem(systemKey) {
+  if (systemLoads.has(systemKey)) return systemLoads.get(systemKey);
+  const cb = systemListEl.querySelector(`[data-system="${systemKey}"]`);
+  if (cb) cb.checked = true;
+  return setSystemVisible(systemKey, true);
+}
+async function doSetSystemVisible(systemKey, visible) {
   const organs = Organs.filter((o) => o.system === systemKey);
   const token = Symbol();
   systemToken.set(systemKey, token);
   if (visible) {
     const def = SYSTEMS.find((s) => s.key === systemKey);
     try {
-      const buffer = await trackLoading(def.label, fetchBundle(systemKey));
+      const buffer = await fetchBundle(def);
       if (systemToken.get(systemKey) !== token) return; // toggled again while loading
       organs.forEach((o) => addOrgan(o, buffer));
-      fitCameraToScene();
+      updateVisibilityStatus();
+      if (!searchReveal) fitCameraToScene();
     } catch (e) {
       console.error(systemKey, e);
+      systemLoads.delete(systemKey);
       loadingEl.textContent = `Could not load ${def.label}`;
       loadingEl.hidden = false;
       const cb = systemListEl.querySelector(`[data-system="${systemKey}"]`);
@@ -217,27 +261,105 @@ opacityEl.addEventListener("input", () => {
 
 /* ---------- Selection / highlighting ---------- */
 const infoPanel = document.getElementById("infoPanel");
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let searchReveal = false; // true while search is loading a system, so the load doesn't re-frame the whole body
+let bothSides = false; // "hide / isolate both sides" checkbox state, kept across selections
+
+// Left/right twins: same name with left<->right swapped, in the same system.
+const ORGAN_BY_NAME = new Map(Organs.map((o) => [o.system + "|" + o.name.toLowerCase(), o]));
+function mirrorOf(o) {
+  const n = o.name.toLowerCase();
+  const m = n.match(/\b(left|right)\b/);
+  if (!m) return null;
+  const swapped = n.replace(/\b(left|right)\b/, m[1] === "left" ? "right" : "left");
+  const twin = ORGAN_BY_NAME.get(o.system + "|" + swapped);
+  return twin && twin.id !== o.id ? twin : null;
+}
+
 function clearSelection() {
   if (selectedId && loadedMeshes.has(selectedId)) {
     loadedMeshes.get(selectedId).material.emissive.setHex(0x000000);
   }
   selectedId = null;
-  infoPanel.innerHTML = `<h2>Selection</h2><p class="info-empty">Click any structure to select it.</p>`;
+  infoPanel.hidden = true;
+  infoPanel.innerHTML = "";
 }
 function selectOrgan(mesh) {
   if (selectedId && loadedMeshes.has(selectedId)) {
     loadedMeshes.get(selectedId).material.emissive.setHex(0x000000);
   }
-  selectedId = mesh.userData.organ.id;
-  mesh.material.emissive.setHex(0x1a4a48);
   const o = mesh.userData.organ;
+  selectedId = o.id;
+  mesh.material.emissive.setHex(0x1a4a48);
+  const mirror = mirrorOf(o);
+  infoPanel.hidden = false;
   infoPanel.innerHTML = `
-    <h2>Selection</h2>
-    <h3>${o.name}</h3>
-    <div class="info-meta">${o.id} · ${o.systemLabel}</div>
-    <span class="info-kind">${o.kind}</span>
-    <div class="info-meta" style="margin-top:6px">${o.t.toLocaleString()} triangles (decimated)</div>`;
+    <button type="button" class="card-close" data-act="close" aria-label="Clear selection">×</button>
+    <h3>${esc(o.name)}</h3>
+    <div class="info-meta">${esc(o.id)} · ${esc(o.systemLabel)}</div>
+    <span class="info-kind">${esc(o.kind)}</span>
+    <div class="info-meta">${o.t.toLocaleString()} triangles (decimated)</div>
+    <div class="card-actions">
+      <button type="button" class="pill-btn" data-act="focus" title="Zoom to this structure">Focus</button>
+      <button type="button" class="pill-btn" data-act="hide" title="Hide this structure">Hide</button>
+      <button type="button" class="pill-btn" data-act="isolate" title="Show only this structure">Isolate</button>
+    </div>
+    ${mirror ? `<div class="card-mirror">Opposite side: <a data-mirror="${esc(mirror.id)}">${esc(mirror.name)}</a>
+      <label><input type="checkbox" id="bothSides" ${bothSides ? "checked" : ""} /> Hide / isolate both sides</label></div>` : ""}`;
 }
+
+function selectionIds() {
+  const o = Organs.find((x) => x.id === selectedId);
+  if (!o) return [];
+  const ids = [o.id];
+  const mirror = bothSides ? mirrorOf(o) : null;
+  if (mirror && loadedMeshes.has(mirror.id)) ids.push(mirror.id);
+  return ids;
+}
+infoPanel.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-mirror]");
+  if (link) {
+    const m = loadedMeshes.get(link.dataset.mirror);
+    if (m) { selectOrgan(m); focusOn([m]); }
+    return;
+  }
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (!act) return;
+  const ids = selectionIds();
+  if (act === "close") clearSelection();
+  else if (act === "focus") focusOn(ids.map((id) => loadedMeshes.get(id)));
+  else if (act === "hide") { ids.forEach((id) => hiddenIds.add(id)); clearSelection(); applyVisibility(); }
+  else if (act === "isolate") {
+    isolateIds = new Set(ids);
+    hiddenIds.clear();
+    applyVisibility();
+    focusOn(ids.map((id) => loadedMeshes.get(id)));
+  }
+});
+infoPanel.addEventListener("change", (e) => {
+  if (e.target.id === "bothSides") bothSides = e.target.checked;
+});
+
+/* ---------- Per-structure visibility ---------- */
+const visibilityEl = document.getElementById("visibilityStatus");
+const visibilityText = document.getElementById("visibilityText");
+function updateVisibilityStatus() {
+  const parts = [];
+  if (isolateIds) parts.push(`Isolating ${isolateIds.size}`);
+  if (hiddenIds.size) parts.push(`${hiddenIds.size} hidden`);
+  visibilityEl.hidden = parts.length === 0;
+  visibilityText.textContent = parts.join(" · ");
+}
+function applyVisibility() {
+  loadedMeshes.forEach((m, id) => { m.visible = isShown(id); });
+  if (selectedId && !isShown(selectedId)) clearSelection();
+  updateVisibilityStatus();
+}
+document.getElementById("showAllBtn").addEventListener("click", () => {
+  hiddenIds.clear();
+  isolateIds = null;
+  applyVisibility();
+});
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -246,7 +368,8 @@ function pickAt(event) {
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects([...loadedMeshes.values()], false);
+  // Raycaster ignores .visible, so hidden / non-isolated meshes are filtered out here.
+  const hits = raycaster.intersectObjects([...loadedMeshes.values()].filter((m) => m.visible), false);
   // With transparency on, look through the skin so inner structures are pickable.
   const hit = meshOpacity < 1 ? hits.find((h) => h.object.userData.organ.system !== "skin") ?? hits[0] : hits[0];
   return hit ? hit.object : null;
@@ -298,14 +421,17 @@ bloodToggle.addEventListener("change", updateFlowVisibility);
 nerveToggle.addEventListener("change", updateFlowVisibility);
 
 /* ---------- Camera fit ---------- */
-function fitCameraToScene() {
+// Frames the given meshes (default: everything currently shown). keepDirection
+// keeps the current viewing angle, used when zooming to one structure.
+function frameMeshes(meshes, keepDirection) {
   root.updateMatrixWorld(true);
   const box = new THREE.Box3();
   let any = false;
   // Use geometry bounds only: expandByObject would also include the (hidden)
   // flow-pulse sprites, which sit at each mesh's local origin and drag the
   // fit box out to the world origin.
-  loadedMeshes.forEach((mesh) => {
+  meshes.forEach((mesh) => {
+    if (!mesh) return;
     box.union(mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
     any = true;
   });
@@ -316,15 +442,93 @@ function fitCameraToScene() {
   box.getCenter(center);
   const maxDim = Math.max(size.x, size.y, size.z);
   const dist = maxDim * 1.6 + 50;
-  const dir = new THREE.Vector3(0.5, 0.35, 1).normalize();
+  const dir = keepDirection
+    ? camera.position.clone().sub(controls.target).normalize()
+    : new THREE.Vector3(0.5, 0.35, 1).normalize();
   camera.position.copy(center).add(dir.multiplyScalar(dist));
-  camera.near = Math.max(1, dist / 100);
+  camera.near = Math.max(0.5, dist / 100);
   camera.far = dist * 10;
   camera.updateProjectionMatrix();
   controls.target.copy(center);
   controls.update();
 }
+function fitCameraToScene() {
+  frameMeshes([...loadedMeshes.values()].filter((m) => m.visible), false);
+}
+function focusOn(meshes) {
+  frameMeshes(meshes, true);
+}
 document.getElementById("resetViewBtn").addEventListener("click", fitCameraToScene);
+
+/* ---------- Search ---------- */
+const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
+const SEARCH_INDEX = Organs.map((o) => ({ o, key: o.name.toLowerCase() }));
+let searchHits = [];
+let searchActive = -1;
+
+function runSearch(query) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const out = [];
+  for (const e of SEARCH_INDEX) {
+    if (!terms.every((t) => e.key.includes(t))) continue;
+    const score = e.key.startsWith(terms[0]) ? 0 : e.key.includes(" " + terms[0]) ? 1 : 2;
+    out.push({ score, len: e.key.length, o: e.o });
+  }
+  out.sort((a, b) => a.score - b.score || a.len - b.len || a.o.name.localeCompare(b.o.name));
+  return out.map((x) => x.o);
+}
+function renderSearch() {
+  const q = searchInput.value;
+  searchHits = runSearch(q);
+  searchActive = searchHits.length ? 0 : -1;
+  if (!q.trim()) { searchResults.hidden = true; searchResults.innerHTML = ""; return; }
+  searchResults.hidden = false;
+  const shown = searchHits.slice(0, 40);
+  searchResults.innerHTML = shown.length
+    ? shown.map((o, i) => `<button type="button" class="search-item${i === 0 ? " active" : ""}" data-i="${i}" role="option">
+        <span class="si-name">${esc(o.name)}</span><span class="si-sys">${esc(o.systemLabel)}</span></button>`).join("") +
+      (searchHits.length > shown.length ? `<div class="search-empty">${searchHits.length - shown.length} more — keep typing to narrow</div>` : "")
+    : `<div class="search-empty">No structure matches “${esc(q.trim())}”.</div>`;
+}
+function setSearchActive(i) {
+  const items = searchResults.querySelectorAll(".search-item");
+  if (!items.length) return;
+  searchActive = (i + items.length) % items.length;
+  items.forEach((el, k) => el.classList.toggle("active", k === searchActive));
+  items[searchActive].scrollIntoView({ block: "nearest" });
+}
+
+// Shows a structure found by search: loads its system if needed, un-hides it,
+// selects it and zooms to it.
+async function revealOrgan(o) {
+  searchReveal = true;
+  try { await ensureSystem(o.system); } finally { searchReveal = false; }
+  const mesh = loadedMeshes.get(o.id);
+  if (!mesh) return;
+  hiddenIds.delete(o.id);
+  if (isolateIds) isolateIds.add(o.id);
+  applyVisibility();
+  selectOrgan(mesh);
+  focusOn([mesh]);
+}
+searchInput.addEventListener("input", renderSearch);
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); setSearchActive(searchActive + 1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); setSearchActive(searchActive - 1); }
+  else if (e.key === "Enter" && searchHits[searchActive]) { e.preventDefault(); revealOrgan(searchHits[searchActive]); }
+  else if (e.key === "Escape") { searchInput.value = ""; renderSearch(); }
+});
+searchResults.addEventListener("click", (e) => {
+  const btn = e.target.closest(".search-item");
+  if (btn) revealOrgan(searchHits[Number(btn.dataset.i)]);
+});
+
+// Esc clears the selection (when not typing in the search box).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.activeElement !== searchInput) clearSelection();
+});
 
 /* ---------- Theme toggle ---------- */
 function setupTheme() {

@@ -40,6 +40,12 @@
 <div class="app">
   <aside class="sidebar">
     <div class="sidebar-section">
+      <h2>Find a structure</h2>
+      <input type="search" id="searchInput" class="search-input" placeholder="e.g. femur, aorta, biceps…" autocomplete="off" spellcheck="false" aria-label="Search structures" />
+      <div class="search-results" id="searchResults" role="listbox" aria-label="Search results" hidden></div>
+    </div>
+
+    <div class="sidebar-section">
       <h2>Systems</h2>
       <div class="system-list" id="systemList"></div>
     </div>
@@ -66,17 +72,17 @@
         <input type="range" id="opacityRange" min="10" max="100" value="100" step="5" />
       </label>
       <p class="sidebar-note">Lower it to see organs through bone, muscle or skin.</p>
-    </div>
-
-    <div class="sidebar-section" id="infoPanel">
-      <h2>Selection</h2>
-      <p class="info-empty">Click any structure to select it.</p>
+      <div class="visibility-status" id="visibilityStatus" hidden>
+        <span id="visibilityText"></span>
+        <button type="button" class="pill-btn" id="showAllBtn">Show all</button>
+      </div>
     </div>
   </aside>
 
   <main class="viewport">
     <div id="canvasHost"></div>
-    <div class="viewport-hint">Drag to rotate · scroll to zoom · click a structure to select</div>
+    <div class="selection-card" id="infoPanel" hidden></div>
+    <div class="viewport-hint">Drag to rotate · scroll to zoom · click a structure to select · Esc clears</div>
     <div class="loading-indicator" id="loadingIndicator" hidden>Loading…</div>
   </main>
 </div>
