@@ -77,6 +77,26 @@
   <a href="https://github.com/followorbounce/anatomy-explorer" target="_blank" rel="noopener">Source on GitHub</a>
 </footer>
 
+<div class="startup-error" id="startupError" hidden></div>
+<script>
+/* Classic (non-module) script so it still runs when the page is opened from
+   file://, where the module app below cannot load. */
+(function () {
+  var box = document.getElementById("startupError");
+  function show(html) { box.innerHTML = html; box.hidden = false; }
+  if (location.protocol === "file:") {
+    show("<strong>This page can't run from a file.</strong> Browsers block 3D model loading from <code>file://</code>. " +
+      "Start a local server instead: run <code>./serve.sh</code> in this folder, then open " +
+      "<a href=\"http://localhost:8000/\">http://localhost:8000/</a> — or use the hosted version.");
+    return;
+  }
+  setTimeout(function () {
+    if (!window.__anatomyReady) {
+      show("<strong>The viewer didn't start.</strong> It loads Three.js from cdn.jsdelivr.net — check your connection or ad/script blocker, then reload. See the browser console for details.");
+    }
+  }, 10000);
+})();
+</script>
 <script src="js/data/organs.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>

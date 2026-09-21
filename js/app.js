@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
+window.__anatomyReady = true; // lets index.html's startup check know the module loaded
+
 /* ---------- Color scheme ---------- */
 const SYSTEM_COLOR = {
   digestive: 0xc98a4b,

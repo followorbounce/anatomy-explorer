@@ -21,6 +21,10 @@ Static, no-build interactive 3D human anatomy viewer. Real organ meshes from Bod
 - Flow pulses are illustrative (a dot lerping along the mesh's longest bbox axis), not a fluid sim or a traced vessel path — the UI says so; keep that honest.
 - Never use Russian in code/UI/docs unless the task explicitly calls for it.
 
+## Running
+- **Must be served over http(s)** — opening `index.html` as `file://` cannot work (module scripts + STL loading are blocked); the page shows an explanatory banner. Run `./serve.sh [port]` (default 8000) and open http://localhost:8000/.
+- `js/app.js` sets `window.__anatomyReady`; an inline classic script in `index.html` shows a "viewer didn't start" banner if that isn't set after 10 s (e.g. CDN blocked).
+
 ## Testing
 - Serve statically (`python3 -m http.server`) and open in a browser. Headless Firefox `--screenshot` does **not** capture the WebGL canvas; to verify rendering, read pixels back (render, `drawImage` the canvas into a 2D canvas, sample) or use a real browser.
 

@@ -6,6 +6,8 @@
 - **Fixed**: camera framing bug — `fitCameraToScene` used `Box3.expandByObject`, which counted hidden flow-pulse sprites sitting at mesh-local origin, so the camera targeted a point ~600 mm below the heart and the default view showed a tiny heart. Now unions geometry bounding boxes only. Confirmed via canvas pixel readback (≈470 distinct colours vs 29 before; camera target now at heart).
 - Wrote CLAUDE.md and this file.
 
+- User report: "in the browser nothing works". Reproduced: over http everything works (all 160 meshes, all toggles); opened as `file://` the systems list is empty and nothing responds (module/STL loading blocked). Added a file:// banner + 10 s startup-failure banner in `index.html`, and `serve.sh`.
+
 ## Known gaps / next
 - Not yet a git repo / not pushed (footer already links github.com/followorbounce/anatomy-explorer).
 - Selection panel shows only name / FMA id / system / kind — no descriptions or function text.
