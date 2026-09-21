@@ -23,3 +23,4 @@
 ## 2026-09-21
 - Pushed the app-side work (structure search, per-structure hide/isolate, left/right twin link, load progress, floating selection card).
 - Ran the pending data rebuild (tools changes were newer than `data/mesh/*.bin`): 1,635 → 1,629 structures (6 duplicate meshes dropped), left/right name fix for flexor pollicis brevis, skin fitted outward where fascia/muscle poked through, and one misfiled biliary-tree structure moved from brain to digestive (`PRE` rule in `tools/structures.py`). Sources are re-downloaded to /tmp/bp per CLAUDE.md (not kept in repo). Verified in headless Firefox: all 16 systems on, full body renders, no load errors. Remaining: a few specks of structures still poke through skin at knee/neck.
+- 2026-09-21 — Added Space + drag pan (move the model up/down/sideways) over the 3D view; hint text updated. Verified in headless Firefox (model moved with the drag; plain drag still rotates).

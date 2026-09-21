@@ -55,6 +55,36 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
+// Space + drag = pan (move the model up/down/sideways). Holding Space while the
+// pointer is over the 3D view turns the left mouse button from "rotate" into
+// "pan"; releasing it (or leaving the window) restores rotate. Only active over
+// the viewport so Space keeps its normal job (toggling a focused checkbox,
+// scrolling) everywhere else. Touch keeps OrbitControls' two-finger pan.
+let pointerOverView = false;
+let spaceHeld = false;
+function setPanMode(on) {
+  if (spaceHeld === on) return;
+  spaceHeld = on;
+  controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+  host.classList.toggle("panning", on);
+}
+host.addEventListener("pointerenter", () => { pointerOverView = true; });
+host.addEventListener("pointerleave", () => { pointerOverView = false; });
+function isTypingTarget(el) {
+  return el && (el.tagName === "TEXTAREA" || el.tagName === "SELECT" ||
+    (el.tagName === "INPUT" && !["checkbox", "radio", "range", "button"].includes(el.type)));
+}
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Space" || isTypingTarget(document.activeElement)) return;
+  if (!pointerOverView && !spaceHeld) return;
+  e.preventDefault(); // no page scroll / no toggling of a focused checkbox
+  setPanMode(true);
+});
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space") setPanMode(false);
+});
+window.addEventListener("blur", () => setPanMode(false));
+
 scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a2a, 1.1));
 const key1 = new THREE.DirectionalLight(0xffffff, 1.4);
 key1.position.set(300, 500, 400);

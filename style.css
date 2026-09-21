@@ -147,6 +147,7 @@ body {
 .viewport { position: relative; flex: 1; min-width: 0; background: var(--bg); }
 #canvasHost { position: absolute; inset: 0; }
 #canvasHost canvas { display: block; width: 100%; height: 100%; }
+#canvasHost.panning canvas { cursor: move; }
 .viewport-hint {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
   font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-dim);
