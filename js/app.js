@@ -55,51 +55,6 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
-// Space + drag = pan (move the model up/down/sideways). Holding Space while the
-// pointer is over the 3D view turns the left mouse button from "rotate" into
-// "pan"; releasing it (or leaving the window) restores rotate. Only active over
-// the viewport so Space keeps its normal job (toggling a focused checkbox,
-// scrolling) everywhere else. Touch keeps OrbitControls' two-finger pan.
-let pointerX = -1, pointerY = -1; // last pointer position (window-wide, so overlays on the view don't count as "leaving" it)
-let spaceHeld = false;
-const panBadge = document.createElement("div");
-panBadge.className = "pan-badge";
-panBadge.textContent = "Pan mode — drag to move the model";
-panBadge.hidden = true;
-host.parentElement.appendChild(panBadge);
-function pointerOverView() {
-  const r = host.getBoundingClientRect();
-  return pointerX >= r.left && pointerX <= r.right && pointerY >= r.top && pointerY <= r.bottom;
-}
-function setPanMode(on) {
-  if (spaceHeld === on) return;
-  spaceHeld = on;
-  controls.mouseButtons.LEFT = on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
-  host.classList.toggle("panning", on);
-  panBadge.hidden = !on;
-}
-window.addEventListener("pointermove", (e) => { pointerX = e.clientX; pointerY = e.clientY; }, true);
-function isTypingTarget(el) {
-  return el && (el.tagName === "TEXTAREA" || el.tagName === "SELECT" ||
-    (el.tagName === "INPUT" && !["checkbox", "radio", "range", "button"].includes(el.type)));
-}
-const isSpace = (e) => e.code === "Space" || e.key === " ";
-document.addEventListener("keydown", (e) => {
-  if (!isSpace(e) || isTypingTarget(document.activeElement)) return;
-  if (!spaceHeld && !pointerOverView()) return;
-  e.preventDefault(); // no page scroll
-  // A focused checkbox/button would otherwise be toggled by Space on key-up.
-  const a = document.activeElement;
-  if (a && a !== document.body && a.blur) a.blur();
-  setPanMode(true);
-}, true);
-document.addEventListener("keyup", (e) => {
-  if (!isSpace(e)) return;
-  if (spaceHeld) e.preventDefault();
-  setPanMode(false);
-}, true);
-window.addEventListener("blur", () => setPanMode(false));
-
 scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a2a, 1.1));
 const key1 = new THREE.DirectionalLight(0xffffff, 1.4);
 key1.position.set(300, 500, 400);

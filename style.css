@@ -147,10 +147,6 @@ body {
 .viewport { position: relative; flex: 1; min-width: 0; background: var(--bg); }
 #canvasHost { position: absolute; inset: 0; }
 #canvasHost canvas { display: block; width: 100%; height: 100%; }
-#canvasHost.panning canvas { cursor: move; }
-.pan-badge { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); padding: 4px 10px; border-radius: 999px;
-  font: 11px/1.4 var(--mono, monospace); color: var(--accent, #2dd4bf); background: rgba(10, 14, 20, .85); border: 1px solid currentColor; pointer-events: none; }
-.pan-badge[hidden] { display: none; }
 .viewport-hint {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
   font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-dim);
