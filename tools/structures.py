@@ -114,10 +114,13 @@ _pre_specific = _pre[:-2]
 # Generic source names -> readable ones (checked against the exact concept name).
 RENAME = {
     "body of organ": ("Body of sternum", "skeleton"),  # FMA45734, sits on the sternum body
-    "right hip": ("Right hip region", None),
-    "left hip": ("Left hip region", None),
-    "right knee": ("Right knee region", None),
-    "left knee": ("Left knee region", None),
+    # The region concepts 'right hip' / 'right knee' contain exactly the hip-bone / patella mesh and
+    # win the smallest-concept tie, which filed both hip bones and both kneecaps under "other".
+    # Third field: the FMA id to show instead of the region's.
+    "right hip": ("right hip bone", "skeleton", "FMA16586"),
+    "left hip": ("left hip bone", "skeleton", "FMA16587"),
+    "right knee": ("right patella", "skeleton", "FMA24486"),
+    "left knee": ("left patella", "skeleton", "FMA24487"),
     # Generic IS-A classes that end up as the smallest concept of a single organ part
     "lobular segment": ("Caudate lobe of liver", "digestive"),   # FMA82494, element FJ2816 (part of caudate lobe)
     "parenchyma": ("Parenchyma of pancreas", "digestive"),
@@ -215,11 +218,11 @@ def load(tables_dir):
     for c, elems in groups.items():
         anc = [names[a].lower() for a in ancestors(c)]
         isa = [isa_names[a].lower() for a in isa_ancestors(c)]
-        nm = names[c]
+        nm, sid = names[c], c
         if nm in RENAME:
-            nm = RENAME[nm][0]
+            nm, sid = RENAME[nm][0], (RENAME[nm][2:] or (c,))[0]
         structures.append({
-            "id": c,
+            "id": sid,
             "name": nm,
             "elements": sorted(elems),
             "system": classify(names[c], anc, isa),

@@ -222,6 +222,8 @@ def clean_name(z):
     if not head.strip() and paren:  # '(Fibular node)': a label with no TA name -> use the label
         head, paren = paren.strip()[1:-1], None
     head = head[:1].lower() + head[1:]
+    if re.match(r"(left|right) ", head):  # 'Right testicular artery.r'
+        side = ""
     return (side + head + (paren or "")).strip()
 
 

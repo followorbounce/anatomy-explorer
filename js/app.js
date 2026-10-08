@@ -36,7 +36,18 @@ function colorFor(organ) {
 }
 
 const SYSTEMS = SystemDefs; // { key, label, kind, bytes } in display order
-const SYSTEM_COUNT = Object.fromEntries(SYSTEMS.map((s) => [s.key, Organs.filter((o) => o.system === s.key).length]));
+
+/* ---------- Body: male / female ----------
+   Structures with `sex` ("m"/"f" in organs.js) exist only in that body; the rest is shared.
+   Chosen via ?body=female|male, else the last choice (localStorage), else male. */
+const BODY_KEY = "anatomy-body";
+let sex = (() => {
+  const q = new URLSearchParams(location.search).get("body");
+  if (q === "female" || q === "male") return q[0];
+  try { return localStorage.getItem(BODY_KEY) === "f" ? "f" : "m"; } catch { return "m"; }
+})();
+const inBody = (o) => !o.sex || o.sex === sex;
+const systemCount = (key) => Organs.filter((o) => o.system === key && inBody(o)).length;
 const DEFAULT_ON = new Set(["skeleton"]);
 
 /* ---------- Three.js scene ---------- */
@@ -209,11 +220,11 @@ const systemListEl = document.getElementById("systemList");
 const fmtMB = (b) => (b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB");
 systemListEl.innerHTML = SYSTEMS.map(
   (s) => `
-  <label class="system-row" title="${SYSTEM_COUNT[s.key]} structures · ${fmtMB(s.bytes)} to download">
+  <label class="system-row" title="${fmtMB(s.bytes)} to download">
     <input type="checkbox" data-system="${s.key}" ${DEFAULT_ON.has(s.key) ? "checked" : ""} />
     <span class="sys-swatch" style="background:#${SYSTEM_COLOR[s.key].toString(16).padStart(6, "0")}"></span>
     ${s.label}
-    <span class="sys-count">${SYSTEM_COUNT[s.key]}</span>
+    <span class="sys-count" data-count="${s.key}">${systemCount(s.key)}</span>
   </label>`
 ).join("");
 
@@ -232,7 +243,8 @@ function ensureSystem(systemKey) {
   return setSystemVisible(systemKey, true);
 }
 async function doSetSystemVisible(systemKey, visible) {
-  const organs = Organs.filter((o) => o.system === systemKey);
+  const all = Organs.filter((o) => o.system === systemKey);
+  const organs = all.filter(inBody);
   const token = Symbol();
   systemToken.set(systemKey, token);
   if (visible) {
@@ -252,7 +264,7 @@ async function doSetSystemVisible(systemKey, visible) {
       if (cb) cb.checked = false;
     }
   } else {
-    organs.forEach(unloadOrgan);
+    all.forEach(unloadOrgan);
   }
 }
 
@@ -272,14 +284,14 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 let searchReveal = false; // true while search is loading a system, so the load doesn't re-frame the whole body
 let bothSides = false; // "hide / isolate both sides" checkbox state, kept across selections
 
-// Left/right twins: same name with left<->right swapped, in the same system.
-const ORGAN_BY_NAME = new Map(Organs.map((o) => [o.system + "|" + o.name.toLowerCase(), o]));
+// Left/right twins: same name with left<->right swapped, in the same system and body.
+const ORGAN_BY_NAME = new Map(Organs.map((o) => [(o.sex || "") + "|" + o.system + "|" + o.name.toLowerCase(), o]));
 function mirrorOf(o) {
   const n = o.name.toLowerCase();
   const m = n.match(/\b(left|right)\b/);
   if (!m) return null;
   const swapped = n.replace(/\b(left|right)\b/, m[1] === "left" ? "right" : "left");
-  const twin = ORGAN_BY_NAME.get(o.system + "|" + swapped);
+  const twin = ORGAN_BY_NAME.get((o.sex || "") + "|" + o.system + "|" + swapped);
   return twin && twin.id !== o.id ? twin : null;
 }
 
@@ -303,7 +315,7 @@ function selectOrgan(mesh) {
   infoPanel.innerHTML = `
     <button type="button" class="card-close" data-act="close" aria-label="Clear selection">×</button>
     <h3>${esc(o.name)}</h3>
-    <div class="info-meta">${o.src === "Z-Anatomy" ? "" : `${esc(o.id)} · `}${esc(o.systemLabel)}</div>
+    <div class="info-meta">${o.id.startsWith("FMA") ? `${esc(o.id)} · ` : ""}${esc(o.systemLabel)}${o.sex ? ` · ${o.sex === "f" ? "female" : "male"} body only` : ""}</div>
     <span class="info-kind">${esc(o.kind)}</span>
     <div class="info-meta">${o.t.toLocaleString()} triangles (decimated)${o.src ? ` · geometry: ${esc(o.src)}` : ""}</div>
     <div class="card-actions">
@@ -479,7 +491,7 @@ function runSearch(query) {
   if (!terms.length) return [];
   const out = [];
   for (const e of SEARCH_INDEX) {
-    if (!terms.every((t) => e.key.includes(t))) continue;
+    if (!inBody(e.o) || !terms.every((t) => e.key.includes(t))) continue;
     const score = e.key.startsWith(terms[0]) ? 0 : e.key.includes(" " + terms[0]) ? 1 : 2;
     out.push({ score, len: e.key.length, o: e.o });
   }
@@ -536,6 +548,31 @@ searchResults.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.activeElement !== searchInput) clearSelection();
 });
+
+/* ---------- Body switch ---------- */
+const bodyButtons = document.querySelectorAll("[data-body]");
+const bodyNote = document.getElementById("bodyNote");
+function renderBody() {
+  bodyButtons.forEach((b) => b.setAttribute("aria-checked", String(b.dataset.body === sex)));
+  bodyNote.textContent = sex === "f"
+    ? "Female pelvis, uterus, ovaries, uterine tubes and breasts from the Visible Human Female, fitted to this body; everything else is shared with the male model. External female genitalia and female-specific vessels are not modelled."
+    : "Adult male (BodyParts3D).";
+  document.querySelectorAll("[data-count]").forEach((el) => { el.textContent = systemCount(el.dataset.count); });
+}
+async function setBody(next) {
+  if (next === sex) return;
+  sex = next;
+  try { localStorage.setItem(BODY_KEY, sex); } catch {}
+  renderBody();
+  if (searchInput.value.trim()) renderSearch();
+  // Swap the sex-specific parts of every system that is on; keep the camera where it is.
+  loadedMeshes.forEach((m) => { if (!inBody(m.userData.organ)) unloadOrgan(m.userData.organ); });
+  searchReveal = true;
+  try { await Promise.all([...systemLoads.keys()].map((k) => setSystemVisible(k, true))); } finally { searchReveal = false; }
+  applyVisibility();
+}
+bodyButtons.forEach((b) => b.addEventListener("click", () => setBody(b.dataset.body)));
+renderBody();
 
 /* ---------- Theme toggle ---------- */
 function setupTheme() {

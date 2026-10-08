@@ -4,10 +4,13 @@
 Usage:
   python3 tools/build_data.py <dir with the dataset .txt tables> <dir with isa_BP3D_4.0_obj_99 (unzipped)> \
       [<dir with partof_BP3D_4.0_obj_99 (unzipped)>] [--budget-tris=N] [--extra=<tools/zanatomy.py out dir>]
+      [--female=<tools/female.py out dir>]
 
 --extra adds the Z-Anatomy gap-fill geometry (peripheral nerves, missing vessel stretches, lymph
 nodes): a piece whose name matches a BP3D structure of the same system is appended to it, the
 rest become new structures with id "ZA-<slug>".
+--female adds tools/female.py's structures (id "F-<slug>", sex "f"), tags the male parts they
+replace with sex "m" (mark_male), and derives a female skin (female_skin).
 
 Source: https://dbarchive.biosciencedbc.jp/data/bodyparts3d/LATEST/  (CC BY-SA 2.1 Japan)
 Needs numpy + fast_simplification.
@@ -119,28 +122,51 @@ def merge_extra(structs, loaded, extra_dir):
         v, f = read_obj(os.path.join(extra_dir, m["file"]))
         if not len(f):
             continue
-        s = by.get((key(m["name"]), m["system"]))
+        s = None if m.get("sex") else by.get((key(m["name"]), m["system"]))
         if s is not None:
             v0, f0 = loaded[s["id"]]
             loaded[s["id"]] = (np.vstack([v0, v]), np.vstack([f0, f + len(v0)]))
             s["source"] = "BodyParts3D + Z-Anatomy"
             grown += 1
         else:
-            sid = "ZA-" + re.sub(r"[^a-z0-9]+", "-", m["name"].lower()).strip("-")
-            structs.append({"id": sid, "name": m["name"], "system": m["system"], "elements": [], "source": "Z-Anatomy"})
+            sid = ("F-" if m.get("sex") == "f" else "ZA-") + re.sub(r"[^a-z0-9]+", "-", m["name"].lower()).strip("-")
+            structs.append({"id": sid, "name": m["name"], "system": m["system"], "elements": [], "source": m.get("src", "Z-Anatomy"),
+                            **({"sex": m["sex"]} if m.get("sex") else {})})
             loaded[sid] = (v, f)
             new += 1
     print(f"extra: {grown} BP3D structures extended, {new} new structures from {extra_dir}")
 
 
-def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0):
+# Male-only structures once a female set exists (BP3D and Z-Anatomy are both a male body).
+MALE_ONLY = r"penis|penile|glans|\btest(is|es)\b|testicular|scrot|prostat|deferent|seminal|epididym|cremaster|spermatic|cavernous organ|^urethra$"
+
+
+def mark_male(structs):
+    """Tag the parts the female set replaces with sex "m" (the app shows sex-less parts in both)."""
+    import re
+    fem = {(s["system"], s["name"]) for s in structs if s.get("sex") == "f"}
+    if not fem:
+        return
+    n = 0
+    for s in structs:
+        if s.get("sex"):
+            continue
+        if s["system"] == "genital" or re.search(MALE_ONLY, s["name"], re.I) or (s["system"], s["name"]) in fem or s["name"] == "skin":
+            s["sex"] = "m"
+            n += 1
+    print(f"sex: {n} structures male-only, {len(fem)} female-only")
+
+
+def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0, skin=None, points=None, spread_iters=3, soften_iters=2):
     """Push the skin surface outward *locally* wherever another structure touches or
     pokes through it (thin fascia/muscle sitting right under the skin, lips, ears...).
-    Uniform inflation would fatten fingers and ears, so displacement is per-vertex."""
-    sk = next((s for s in structs if s["name"] == "skin" and s["id"] in final), None)
+    Uniform inflation would fatten fingers and ears, so displacement is per-vertex.
+    `skin` / `points` override which skin (v, f) is fitted and which points it must cover;
+    the fitted (v, f) is then returned instead of written into `final`."""
+    sk = next((s for s in structs if s["name"] == "skin" and s.get("sex") != "f" and s["id"] in final), None)
     if sk is None:
         return
-    v, f = final[sk["id"]]
+    v, f = skin if skin is not None else final[sk["id"]]
     v = v.astype(np.float64)
     fn = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
     vn = np.zeros_like(v)
@@ -151,9 +177,9 @@ def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0):
     S2 = (S ** 2).sum(1)
 
     # candidate points: vertices of structures that can sit near the surface
-    pts = []
-    for s in structs:
-        if s["id"] not in final or s["id"] == sk["id"] or s["name"] == "hair of head":
+    pts = [] if points is None else [points]
+    for s in (structs if points is None else ()):
+        if s["id"] not in final or s["id"] == sk["id"] or s["name"] == "hair of head" or s.get("sex") == "f":
             continue
         if s["system"] in ("brain", "heart", "respiratory", "urinary", "endocrine"):
             continue
@@ -170,7 +196,7 @@ def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0):
         vn = -vn
 
     # cheap prefilter: keep points within ~one grid cell of any skin vertex
-    cell = 15.0
+    cell = max(15.0, reach / 2)  # the prefilter keeps points within ~2 cells of the skin
     key = lambda a: (np.floor(a / cell).astype(np.int64) + 1000) @ np.array([1, 4001, 4001 * 4001])
     skin_cells = np.unique(key(S))
     keep = np.zeros(len(P), bool)
@@ -196,31 +222,84 @@ def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0):
     ei = np.r_[f[:, 0], f[:, 1], f[:, 2], f[:, 1], f[:, 2], f[:, 0]]
     ej = np.r_[f[:, 1], f[:, 2], f[:, 0], f[:, 0], f[:, 1], f[:, 2]]
     spread = need.copy()
-    for _ in range(3):
+    for _ in range(spread_iters):
         nxt = spread.copy()
         np.maximum.at(nxt, ei, spread[ej] * 0.9)
         spread = nxt
     soft = spread.copy()
     deg = np.bincount(ei, minlength=len(S)).astype(float)
-    for _ in range(2):
+    for _ in range(soften_iters):
         acc = np.zeros(len(S))
         np.add.at(acc, ei, soft[ej])
         soft = 0.5 * soft + 0.5 * acc / np.maximum(deg, 1)
     disp = np.maximum(soft, spread * 0.85)
     moved = disp > 0.05
     print(f"skin fit: {moved.sum()} of {len(S)} skin vertices pushed out (mean {disp[moved].mean():.1f} mm, max {disp.max():.1f} mm)")
+    if skin is not None:
+        return v + vn * disp[:, None], f
     final[sk["id"]] = (v + vn * disp[:, None], f)
+
+
+MALE_EXTERNAL = r"glans|corpus cavernosum|cavernous organ|testis|epididym"
+
+
+def female_skin(final, structs):
+    """Female body surface derived from the (fitted) BP3D skin: the skin over the penis and
+    scrotum is relaxed into a membrane spanning its base (vertices near those organs are
+    repeatedly moved to the mean of their neighbours, the rest held fixed), then the skin is
+    pushed out where the female pelvis touches it, and the breast surfaces are added. External
+    female genitalia are not modelled."""
+    import re
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
+    from scipy.spatial import cKDTree
+    sk = next((s for s in structs if s["name"] == "skin" and s.get("sex") == "m" and s["id"] in final), None)
+    fem = [s for s in structs if s.get("sex") == "f" and s["id"] in final]
+    if sk is None or not fem:
+        return
+    v, f = final[sk["id"]]
+    v = v.astype(np.float64).copy()
+    gen = np.vstack([final[s["id"]][0] for s in structs
+                     if s.get("sex") == "m" and s["id"] in final and re.search(MALE_EXTERNAL, s["name"])])
+    # Skin within reach of the penis/testes is freed (that includes the whole scrotum and penile
+    # skin, plus a margin of pubic/perineal/inner-thigh skin, which the solve just smooths).
+    free = cKDTree(gen).query(v)[0] < 22.0
+    ei = np.r_[f[:, 0], f[:, 1], f[:, 2], f[:, 1], f[:, 2], f[:, 0]]
+    ej = np.r_[f[:, 1], f[:, 2], f[:, 0], f[:, 0], f[:, 1], f[:, 2]]
+    A = sp.csr_matrix((np.ones(len(ei)), (ei, ej)), shape=(len(v), len(v)))
+    A.data[:] = 1.0
+    # Membrane: every free vertex = mean of its neighbours, fixed vertices as boundary (L_ff x_f = -L_fb x_b).
+    L = sp.diags(np.asarray(A.sum(1)).ravel()) - A
+    fi, bi = np.where(free)[0], np.where(~free)[0]
+    Lff, Lfb = L[fi][:, fi].tocsc(), L[fi][:, bi]
+    for k in range(3):
+        v[fi, k] = spla.spsolve(Lff, -(Lfb @ v[bi, k]))
+    print(f"female skin: {free.sum()} vertices over the male external genitalia relaxed into a membrane")
+    pel = np.vstack([final[s["id"]][0] for s in fem if s["system"] == "skeleton"])
+    v, f = fit_skin(final, structs, skin=(v, f), points=pel)  # same limits as the male fit: surface bumps only
+    # Breasts: the HRA breast fat (+ nipple/areola) outer surface is the breast's own shape, so it
+    # becomes part of the skin; the flat male chest skin underneath stays hidden inside it.
+    for s in fem:
+        if re.search(r"fatty tissue of breast|nipple", s["name"]):
+            bv, bf = final[s["id"]]
+            f = np.vstack([f, bf + len(v)])
+            v = np.vstack([v, bv])
+    structs.append({"id": "F-skin", "name": "skin", "system": "skin", "elements": [], "sex": "f",
+                    "source": "BodyParts3D skin reshaped for the female set (breasts, no male genitalia)"})
+    final["F-skin"] = (v, f)
 
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     budget = 3_000_000
-    extra = None
+    extra = female = None
     for a in sys.argv[1:]:
         if a.startswith("--budget-tris="):
             budget = int(a.split("=")[1])
         elif a.startswith("--extra="):
             extra = a.split("=", 1)[1]
+        elif a.startswith("--female="):
+            female = a.split("=", 1)[1]
     tables, isa_dir = args[0], args[1]
     partof_dir = args[2] if len(args) > 2 else None
     out_root = os.path.join(os.path.dirname(__file__), "..")
@@ -256,6 +335,9 @@ def main():
     structs = drop_duplicates(structs, loaded)
     if extra:
         merge_extra(structs, loaded, extra)
+    if female:
+        merge_extra(structs, loaded, female)
+        mark_male(structs)
     fix_sides(structs, loaded)
     total = sum(len(loaded[s["id"]][1]) for s in structs if s["id"] in loaded)
 
@@ -279,6 +361,7 @@ def main():
         final[s["id"]] = (v, f)
 
     fit_skin(final, structs)
+    female_skin(final, structs)
 
     bundles = {}
     manifest = []
@@ -294,7 +377,7 @@ def main():
         label, kind = sysdefs[s["system"]]
         manifest.append({
             "id": s["id"], "name": s["name"], "system": s["system"], "systemLabel": label,
-            "kind": kind, **({"src": s["source"]} if "source" in s else {}), "o": len(b), "v": int(len(pos)), "t": int(len(idx)),
+            "kind": kind, **({"src": s["source"]} if "source" in s else {}), **({"sex": s["sex"]} if "sex" in s else {}), "o": len(b), "v": int(len(pos)), "t": int(len(idx)),
         })
         b += blob
         final_tris += len(idx)
@@ -316,6 +399,8 @@ def main():
         fh.write("   (c) Database Center for Life Science, CC BY-SA 2.1 Japan. Do not edit by hand.\n")
         if extra:
             fh.write("   Structures with src set include Z-Anatomy geometry (CC BY-SA 4.0), warped onto BodyParts3D by tools/zanatomy.py.\n")
+        if female:
+            fh.write("   sex m/f = shown only for that body (absent = both). Female parts: HRA Visible Human Female (CC BY 4.0), tools/female.py.\n")
         fh.write("   id = FMA concept id; o/v/t = byte offset, vertex count, triangle count inside data/mesh/<system>.bin */\n")
         fh.write("const SystemDefs = " + json.dumps(sys_meta, indent=1) + ";\n")
         fh.write("const Organs = [\n")

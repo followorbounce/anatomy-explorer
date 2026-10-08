@@ -76,6 +76,14 @@ body {
   font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--ink-dim); margin: 0 0 10px;
 }
+.seg { display: flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-alt); }
+.seg button {
+  flex: 1; min-height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--ink-dim);
+  font-family: var(--font-mono); font-size: 0.78rem; cursor: pointer;
+}
+.seg button:hover { color: var(--ink); }
+.seg button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .system-list { display: flex; flex-direction: column; gap: 4px; }
 .system-row {
   display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius);
