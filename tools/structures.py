@@ -26,6 +26,7 @@ SYSTEMS = [
     ("urinary",    "Urinary",              "organ"),
     ("genital",    "Genital",              "organ"),
     ("endocrine",  "Glands & thymus",     "organ"),
+    ("lymph",      "Lymph nodes",          "organ"),  # only from Z-Anatomy (tools/zanatomy.py)
     ("senses",     "Eye, ear & face",      "organ"),
     ("skin",       "Skin & body surface",  "organ"),
     ("other",      "Other",                "organ"),
@@ -34,7 +35,7 @@ SYSTEMS = [
 # Name patterns, checked in order; first hit wins.
 RULES = [
     ("skin",       r"\bskin\b|integument|\bnail\b|\bhair\b|cutaneous"),
-    ("heart",      r"\bheart\b|atrium|ventricle|cardiac|\bvalve\b|cusp|leaflet|coronary|papillary|septum of heart|pericardi|chordae"),
+    ("heart",      r"\bheart\b|atrium|ventricle|cardiac|\bvalve\b|cusp|leaflet|coronary|papillary|septum of heart|pericardi|chordae|marginal vein"),
     ("arteries",   r"arter|aorta|\btrunk\b.*(thyro|costo)|truncus"),
     ("veins",      r"\bvein|venous|vena\b|sinus of dura|dural venous|\bsinus\b.*(sagittal|sigmoid|transverse|straight|cavernous)|coronary sinus"),
     ("muscles",    r"muscle|tendon|sphincter|diaphragm|\bmasseter|platysma|\bpsoas|\biliacus|\bglut|\bbiceps|\btriceps|\bdeltoid|\btrapezius|\blatissimus"),
@@ -117,6 +118,9 @@ RENAME = {
     "left hip": ("Left hip region", None),
     "right knee": ("Right knee region", None),
     "left knee": ("Left knee region", None),
+    # Generic IS-A classes that end up as the smallest concept of a single organ part
+    "lobular segment": ("Caudate lobe of liver", "digestive"),   # FMA82494, element FJ2816 (part of caudate lobe)
+    "parenchyma": ("Parenchyma of pancreas", "digestive"),
 }
 _HEART = _compiled[1][1]
 _SKIN = _compiled[0][1]

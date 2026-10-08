@@ -18,6 +18,7 @@ const SYSTEM_COLOR = {
   urinary: 0xd8c25a,
   genital: 0xd98cb3,
   endocrine: 0x8fc9a0,
+  lymph: 0x9fd36b,
   senses: 0x7fb6d9,
   skin: 0xe8b89a,
   other: 0x9aa4b2,
@@ -302,9 +303,9 @@ function selectOrgan(mesh) {
   infoPanel.innerHTML = `
     <button type="button" class="card-close" data-act="close" aria-label="Clear selection">×</button>
     <h3>${esc(o.name)}</h3>
-    <div class="info-meta">${esc(o.id)} · ${esc(o.systemLabel)}</div>
+    <div class="info-meta">${o.src === "Z-Anatomy" ? "" : `${esc(o.id)} · `}${esc(o.systemLabel)}</div>
     <span class="info-kind">${esc(o.kind)}</span>
-    <div class="info-meta">${o.t.toLocaleString()} triangles (decimated)</div>
+    <div class="info-meta">${o.t.toLocaleString()} triangles (decimated)${o.src ? ` · geometry: ${esc(o.src)}` : ""}</div>
     <div class="card-actions">
       <button type="button" class="pill-btn" data-act="focus" title="Zoom to this structure">Focus</button>
       <button type="button" class="pill-btn" data-act="hide" title="Hide this structure">Hide</button>
