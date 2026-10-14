@@ -21,6 +21,7 @@ Offsets / counts are listed per structure in js/data/organs.js.
 """
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -240,6 +241,91 @@ def fit_skin(final, structs, margin=1.0, max_push=12.0, reach=20.0, skin=None, p
     final[sk["id"]] = (v + vn * disp[:, None], f)
 
 
+def outward_normals(v, f):
+    """Area-weighted vertex normals, flipped (per mesh) to point away from the mesh centroid."""
+    fn = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
+    vn = np.zeros_like(v)
+    for k in range(3):
+        np.add.at(vn, f[:, k], fn)
+    vn /= np.linalg.norm(vn, axis=1, keepdims=True) + 1e-12
+    if np.einsum("ij,ij->", v - v.mean(0), vn) < 0:
+        vn = -vn
+    return vn
+
+
+SCALP = r"epicranial aponeurosis|frontalis|occipitalis|temporoparietalis"
+
+
+def fit_muscles(final, structs, margin=0.8, max_push=8.0, reach=12.0, side=5.0, agree=0.3, spread_iters=4, soften_iters=3,
+                scalp=(14.0, 22.0, 12.0)):
+    """Push muscle surfaces outward *locally* wherever bone breaks through them. BP3D muscles and
+    bones were segmented separately and Z-Anatomy pieces are warped, so thin muscles (scalp, chest,
+    hip) dip a few mm under the bone surface and specks or patches of bone show through.
+    A bone point counts only if it lies *under* a muscle: its nearest muscle vertex faces the same
+    way (normals agree, so not the muscle's deep face) and sits within `side` mm sideways (so bone
+    merely beside a muscle edge — shin, sternum, clavicle — doesn't bulge the edge). Both bodies'
+    bones are used, since muscles are shared. The scalp sheet (galea and its muscle bellies) covers
+    the whole vault in life, so it gets looser limits `scalp` = (side, reach, max_push)."""
+    from scipy.spatial import cKDTree
+    mus = [s for s in structs if s["system"] == "muscles" and s["id"] in final]
+    bones = [s for s in structs if s["system"] == "skeleton" and s["id"] in final]
+    if not mus or not bones:
+        return
+    V, N, F, own, off = [], [], [], [], 0
+    for i, s in enumerate(mus):
+        v, f = final[s["id"]]
+        V.append(v); N.append(outward_normals(v, f)); F.append(f + off); own.append(np.full(len(v), i)); off += len(v)
+    V, N, F, own = np.vstack(V), np.vstack(N), np.vstack(F), np.concatenate(own)
+    is_scalp = np.array([bool(re.search(SCALP, s["name"])) for s in mus])[own]
+    side_v = np.where(is_scalp, scalp[0], side)
+    reach_v = np.where(is_scalp, scalp[1], reach)
+    push_v = np.where(is_scalp, scalp[2], max_push)
+    B = np.vstack([final[s["id"]][0] for s in bones])
+    BN = np.vstack([outward_normals(*final[s["id"]]) for s in bones])
+
+    tree = cKDTree(V)
+    need = np.zeros(len(V))
+    for i in range(0, len(B), 200000):
+        b, bn = B[i:i + 200000], BN[i:i + 200000]
+        d, j = tree.query(b, k=4, distance_upper_bound=reach_v.max())
+        for c in range(j.shape[1]):
+            ok = np.isfinite(d[:, c])
+            jj = np.where(ok, j[:, c], 0)
+            diff = b - V[jj]
+            h = np.einsum("ij,ij->i", diff, N[jj])
+            lateral = np.linalg.norm(diff - h[:, None] * N[jj], axis=1)
+            req = h + margin
+            ok &= (d[:, c] <= reach_v[jj]) & (np.einsum("ij,ij->i", bn, N[jj]) > agree) & (lateral < side_v[jj])
+            ok &= (req > 0) & (req <= push_v[jj] + margin)
+            np.maximum.at(need, jj[ok], req[ok])
+
+    # spread to neighbours within the same mesh (edges never cross meshes), then soften
+    ei = np.r_[F[:, 0], F[:, 1], F[:, 2], F[:, 1], F[:, 2], F[:, 0]]
+    ej = np.r_[F[:, 1], F[:, 2], F[:, 0], F[:, 0], F[:, 1], F[:, 2]]
+    spread = need.copy()
+    for _ in range(spread_iters):
+        nxt = spread.copy()
+        np.maximum.at(nxt, ei, spread[ej] * 0.85)
+        spread = nxt
+    soft = spread.copy()
+    deg = np.bincount(ei, minlength=len(V)).astype(float)
+    for _ in range(soften_iters):
+        acc = np.zeros(len(V))
+        np.add.at(acc, ei, soft[ej])
+        soft = 0.5 * soft + 0.5 * acc / np.maximum(deg, 1)
+    disp = np.maximum(soft, spread * 0.85)
+    moved = disp > 0.05
+    V = V + N * disp[:, None]
+    touched = 0
+    for i, s in enumerate(mus):
+        sel = own == i
+        if moved[sel].any():
+            touched += 1
+        final[s["id"]] = (V[sel], final[s["id"]][1])
+    print(f"muscle fit: {moved.sum()} of {len(V)} muscle vertices in {touched} muscles pushed over bone "
+          f"(mean {disp[moved].mean():.1f} mm, max {disp.max():.1f} mm)")
+
+
 MALE_EXTERNAL = r"glans|corpus cavernosum|cavernous organ|testis|epididym"
 
 
@@ -360,6 +446,7 @@ def main():
                 v, f = compact(np.asarray(v2, dtype=np.float64), np.asarray(f2, dtype=np.int64))
         final[s["id"]] = (v, f)
 
+    fit_muscles(final, structs)
     fit_skin(final, structs)
     female_skin(final, structs)
 

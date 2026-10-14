@@ -68,6 +68,16 @@ LYMPH_SKIP = re.compile(r"thymus|spleen|splenic|tonsil|bone marrow", re.I)
 ANCHOR_COLLECTIONS = ["8: Visceral systems", "Heart", "Central nervous system"]
 # From the central nervous system only the spinal parts; the brain comes from BP3D.
 CNS_KEEP = re.compile(r"spinal dura|cauda equina|root of spinal nerve|spinal ganglion|nerve to", re.I)
+# Head and face muscles: BodyParts3D has none of these (only platysma and the jaw-floor / eyelid
+# muscles), so with muscles on the whole skull was bare bone. Taken whole from "4: Muscular system".
+# Also the linea alba: without it the gap between the two rectus abdominis showed the spine.
+HEAD_MUSCLES = re.compile(
+    r"^linea alba$|^(left|right) (temporalis muscle|superficial part of masseter|deep part of masseter|frontalis muscle|occipitalis muscle|"
+    r"epicranial aponeurosis|temporoparietalis muscle|orbicularis oris muscle|orbital part of orbicularis oculi|"
+    r"palpebral part of orbicularis oculi|corrugator supercilii|procerus muscle|nasalis muscle|depressor septi nasi|"
+    r"levator labii superioris|levator nasolabialis|levator anguli oris|zygomaticus major muscle|zygomaticus minor muscle|"
+    r"risorius muscle|bucinator|depressor anguli oris|depressor labii inferioris|mentalis muscle|medial pterygoid muscle|"
+    r"superior head of lateral pterygoid muscle|inferior head of lateral pterygoid muscle)$")
 # BP3D systems a Z structure is checked against for coverage
 COVER = {
     "nerves": ("nerves", "brain", "senses"),
@@ -543,6 +553,20 @@ def main():
                 F = F[~cov[F].all(1)]
                 if len(F) >= 4:
                     add(name, system, z, V, F)
+
+    heads = 0
+    for o in B.collection_objects("4: Muscular system"):
+        if o.get(b"type") != 1:
+            continue
+        name = clean_name(nm(o))
+        if not HEAD_MUSCLES.match(name) or (merge_key(name), "muscles") in bp_names:
+            continue
+        V, F = B.mesh(o)
+        if V is None or len(F) < 8:
+            continue
+        add(name, "muscles", nm(o), warp(V * 1000), F)
+        heads += 1
+    print(f"  {heads} head and face muscles + linea alba")
 
     manifest = []
     for name, e in sorted(result.items()):
