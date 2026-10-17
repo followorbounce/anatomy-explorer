@@ -50,3 +50,6 @@
 - Tried and dropped: replacing the whole muscle layer with Z-Anatomy's muscular system. Muscle-only it gave 25.5 dm² (no better: Z's muscles are derived from BP3D) and it would lose the FMA ids; with its fasciae included it covered almost everything but as a smooth suit (fascia lata, crural fascia…) hiding every muscle. Pushing *all* muscle edges further (10 mm sideways) also hid the shins, but only by bulging neighbours over the bone, which is anatomically wrong.
 - 2,421 structures, muscles 401 → 456, 3.85 M tris, 69.3 MB. Verified: bundle offsets/sizes vs organs.js, finite positions, indices in range, `node --check`; shaded WebGL readback (app materials) of head/shoulders, back, legs and torso in both bodies.
 - Possible next: Z-Anatomy deep fasciae (crural fascia, fascia lata…) into "Ligaments & fascia" so the layer above the muscles exists as its own toggle.
+
+## 2026-10-16 — Index infrastructure
+- added missing canonical URL, description where absent, Open Graph and twitter:card tags. The host-level robots.txt / sitemap index / llms.txt live in followorbounce.github.io.
